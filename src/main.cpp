@@ -37,4 +37,6 @@ void setup()
 void loop()
 {
   vTaskDelay(pdMS_TO_TICKS(1000));
+  // The main loop is mostly empty as critical operations are handled by FreeRTOS tasks.
+  // A small delay is added to prevent the loop from running too fast and consuming CPU unnecessarily.
 }

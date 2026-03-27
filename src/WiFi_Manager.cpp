@@ -6,49 +6,18 @@
 #include "NTP_Manager.h"
 #include "OTA_Manager.h"
 
-// Globals in main.cpp
+// Global WiFi credentials (defined here, declared extern in define.h)
+String g_ssid;
+String g_password;
 
-void wifiInit()
-{
-  prefs.begin("wifi-creds", false);
-  String ssid = prefs.getString("ssid", "");
-  String password = prefs.getString("pass", "");
-  if (ssid == "")
-  {
-    ssid = "Mestry";
-    password = "12345678";
-    Serial.printf("No saved WiFi creds. Set default: %s\n", ssid.c_str());
-    prefs.putString("ssid", ssid);
-    prefs.putString("pass", password);
-  }
-  prefs.end();
-
-  Serial.printf("Connecting to '%s'...\n", ssid.c_str());
-  WiFi.begin(ssid.c_str(), password.c_str());
-
-  int i = 0;
-  while (WiFi.status() != WL_CONNECTED && i++ < 40)
-  {
-    delay(250);
-    Serial.print('.');
-  }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.printf("Connected! IP=%s, Signal=%d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  }
-  else
-  {
-    Serial.println("Connection FAILED - check creds");
-  }
-}
-
+// Forward declaration or move the function definition up to ensure 
+// it is in scope for the event handlers.
 bool ntpAttempt()
 {
+  // Set current state to NTP synchronization.
   currentState = STATE_NTP_SYNC;
+  // Call the NTP update function which also fetches geo-location.
   ntpUpdateOnConnect();
-  delay(100); // Let LED blink
   if (g_epochTime > 0 && g_lat.length() > 0)
   {
     currentState = STATE_CONNECTED;
@@ -58,67 +27,95 @@ bool ntpAttempt()
   return false;
 }
 
+// Event handler for WiFi station connected to AP.
+// This event signifies that the ESP32 has successfully connected to a WiFi access point,
+// but it might not have received an IP address yet.
+void WiFiEventConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
+  Serial.printf("WiFi connected to AP: %s\n", WiFi.SSID().c_str());
+  // The currentState is not immediately set to STATE_CONNECTED here because
+  // we need to wait for an IP address (handled by WiFiEventGotIP) and
+  // complete NTP/OTA checks.
+}
+
+// Event handler for WiFi station obtaining an IP address.
+// This event signifies that the ESP32 has a valid IP address and is fully connected to the network.
+void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
+  wifiConnected = true;
+  Serial.printf("WiFi Connected! IP=%s, Signal=%d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  ntpRetryCount = 0; // Reset NTP retry counter on successful connection.
+  
+  // Attempt NTP synchronization.
+  if (!ntpAttempt()) {
+    ntpRetryCount++;
+    // If NTP fails multiple times, skip it and proceed to connected state.
+    if (ntpRetryCount >= 3) {
+      Serial.println("NTP failed after 3 tries, skip");
+      currentState = STATE_CONNECTED; // Force state to connected even if NTP failed.
+    }
+  }
+  otaCheckAfterNtp(); // After NTP, check for OTA updates.
+  // The currentState will be set by ntpAttempt() or otaCheckAfterNtp()
+  // to STATE_CONNECTED or STATE_ERROR depending on their outcomes.
+}
+
+// Event handler for WiFi station disconnected from AP.
+// This event is triggered when the ESP32 loses its connection to the WiFi access point.
+void WiFiEventDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
+  wifiConnected = false;
+  currentState = STATE_ERROR; // Set state to error on disconnection.
+  // In ESP32 Core 3.0+, 'disconnected' was renamed to 'wifi_sta_disconnected'
+  Serial.printf("WiFi disconnected from AP, reason: %d. Retrying...\n", info.wifi_sta_disconnected.reason);
+  
+  // Attempt to reconnect using the stored global credentials.
+  WiFi.begin(g_ssid.c_str(), g_password.c_str());
+  currentState = STATE_CONNECTING; // Set state to connecting while attempting to reconnect.
+}
+
+// Initializes WiFi connection.
+// It first attempts to load saved WiFi credentials from NVS.
+// If no credentials are found, it uses default ones and saves them.
+// Then, it tries to connect to the WiFi network.
+void wifiInit()
+{
+  // Begin NVS preferences in "wifi-creds" namespace.
+  prefs.begin("wifi-creds", false);
+  g_ssid = prefs.getString("ssid", "");
+  g_password = prefs.getString("pass", "");
+  if (g_ssid == "")
+  {
+    Serial.printf("No saved WiFi creds. Using default: %s\n", DEFAULT_SSID);
+    g_ssid = DEFAULT_SSID;
+    g_password = DEFAULT_PASS;
+    prefs.putString("ssid", g_ssid);
+    prefs.putString("pass", g_password);
+  }
+  prefs.end();
+  
+  // Register WiFi event handlers to enable event-driven connection management.
+  WiFi.onEvent(WiFiEventConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
+  WiFi.onEvent(WiFiEventGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(WiFiEventDisconnected, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+  Serial.printf("Attempting to connect to '%s'...\n", g_ssid.c_str());
+  WiFi.begin(g_ssid.c_str(), g_password.c_str());
+  currentState = STATE_CONNECTING; // Set initial state to connecting.
+}
+
+// FreeRTOS task to continuously monitor WiFi connection status.
+// It handles reconnections, triggers NTP updates, and OTA checks when WiFi is connected.
+// Also updates the LED status based on the current state.
 void wifiMonitorTask(void *parameter)
 {
   Serial.println("WiFi Monitor Task started");
-  unsigned long lastCheck = 0;
 
   for (;;)
   {
-    unsigned long now = millis();
-
+    unsigned long now = millis(); // Get current time.
+    
+    // Update LED based on the current state.
     ledBlink(currentState, now);
-
-    if (now - lastCheck > 5000)
-    {
-      lastCheck = now;
-
-      if (WiFi.status() == WL_CONNECTED)
-      {
-        if (!wifiConnected)
-        {
-          wifiConnected = true;
-          Serial.printf("WiFi Connected: %s (%d dBm)\n", WiFi.SSID().c_str(), WiFi.RSSI());
-          ntpRetryCount = 0;
-          if (!ntpAttempt())
-          {
-            ntpRetryCount++;
-            if (ntpRetryCount >= 3)
-            {
-              Serial.println("NTP failed after 3 tries, skip");
-              currentState = STATE_CONNECTED;
-            }
-          }
-          otaCheckAfterNtp();
-        }
-      }
-      else
-      {
-        wifiConnected = false;
-        currentState = STATE_ERROR;
-        Serial.println("WiFi disconnected, retrying...");
-
-        WiFi.reconnect();
-        delay(5000);
-
-        if (WiFi.status() != WL_CONNECTED)
-        {
-          Serial.println("Reconnect failed, retrying with saved creds...");
-          prefs.begin("wifi-creds", false);
-          String ssid = prefs.getString("ssid", DEFAULT_SSID);
-          String passw = prefs.getString("pass", DEFAULT_PASS);
-          prefs.end();
-          WiFi.disconnect(true);
-          WiFi.begin(ssid.c_str(), passw.c_str());
-          currentState = STATE_CONNECTING;
-        }
-        else
-        {
-          currentState = STATE_CONNECTED;
-        }
-      }
-    }
-
+    
+    // Delay the task for 100 milliseconds to allow other FreeRTOS tasks to run.
     vTaskDelay(pdMS_TO_TICKS(100));
   }
 }

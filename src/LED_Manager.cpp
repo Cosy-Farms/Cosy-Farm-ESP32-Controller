@@ -1,34 +1,41 @@
 #include "LED_Manager.h"
+#include "define.h" // Include define.h for state definitions
 
-#define PIN_R 2
-#define PIN_G 1
-#define PIN_B 3
-
-#define PWM_FREQ 1000
-#define PWM_RES 8
-#define PWM_CH_R 0
-#define PWM_CH_G 1
-#define PWM_CH_B 2
-
+// Variables for managing LED blinking.
 unsigned long lastBlink = 0;
 bool blinkState = false;
 
+// Initializes the LED pins for PWM control.
 void ledInit() {
+  // Configure PWM channels for Red, Green, and Blue LEDs.
+  // ledcSetup(channel, frequency, resolution_bits)
   ledcSetup(PWM_CH_R, PWM_FREQ, PWM_RES);
   ledcSetup(PWM_CH_G, PWM_FREQ, PWM_RES);
   ledcSetup(PWM_CH_B, PWM_FREQ, PWM_RES);
+  
+  // Attach PWM channels to their respective GPIO pins.
+  // ledcAttachPin(pin, channel)
   ledcAttachPin(PIN_R, PWM_CH_R);
   ledcAttachPin(PIN_G, PWM_CH_G);
   ledcAttachPin(PIN_B, PWM_CH_B);
+  
+  // Set initial LED color to off (0,0,0).
   ledSetColor(0,0,0);
 }
 
+// Sets the RGB color of the LED.
+// r, g, b: 8-bit values (0-255) for Red, Green, and Blue intensity.
 void ledSetColor(uint8_t r, uint8_t g, uint8_t b) {
+  // Write the analog value (PWM duty cycle) to each LED channel.
+  // The resolution is 8 bits, so values range from 0 to 255.
   ledcWrite(PWM_CH_R, r);
   ledcWrite(PWM_CH_G, g);
   ledcWrite(PWM_CH_B, b);
 }
 
+// Controls LED blinking patterns based on the current device state.
+// state: The current operational state of the device (from define.h).
+// now: The current time in milliseconds (from millis()).
 void ledBlink(int state, unsigned long now) {
   switch(state) {
     case STATE_NTP_SYNC:
@@ -97,4 +104,3 @@ void ledBlink(int state, unsigned long now) {
       break;
   }
 }
-
