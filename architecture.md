@@ -3,9 +3,7 @@
 ## Overview
 ESP32-S3 WiFi controller for Cosy Farm. Features: RGB LED status, NTP geo/tz sync, OTA from GitHub, Serial commands, RTC cache/drift correction, Voltage safety mode. PlatformIO Arduino. Latest: Version 1.0.0 init, 11s boot delay.
 
-## Hardware
-- Board: ESP32-S3-DevKitC-1 (8MB Flash)
-- RGB LED: GPIO2(R ch0),1(G ch1),3(B ch2) PWM 1kHz 8bit
+
 - Voltage sense: PIN_VOLTAGE_SENSE (define.h, ADC 12bit 11dB)
 
 ## Software Stack
