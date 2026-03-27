@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <nvs_flash.h>
 #include "define.h"
 #include "LED_Manager.h"
 #include "WiFi_Manager.h"
@@ -30,11 +31,11 @@ RTC_DATA_ATTR size_t rtcLogIndex = 0;
  * Appends a string to the system log file on LittleFS.
  * Implementation: Uses an RTC-backed buffer to preserve logs across resets.
  */
-void logStatusToFile(const char* data, bool forceFlush = false)
+void logStatusToFile(const char *data, bool forceFlush = false)
 {
   uint32_t currentV = getSystemVoltage();
   size_t dataLen = strlen(data);
-  
+
   // Check if adding this data would overflow the buffer
   bool willOverflow = (rtcLogIndex + dataLen >= RAM_BUF_MAX_SIZE - 1);
 
@@ -42,20 +43,24 @@ void logStatusToFile(const char* data, bool forceFlush = false)
   if ((forceFlush || willOverflow) && rtcLogIndex > 0)
   {
     // Brownout Prevention: Abort Flash write if voltage is unstable
-    if (!isVoltageSafe()) {
+    if (!isVoltageSafe())
+    {
       Serial.printf("LOG ERROR: Voltage too low (%u mV). Postponing Flash write.\n", currentV);
-      return; 
+      return;
     }
 
     File file = LittleFS.open(LOG_FILE_PATH, FILE_APPEND);
-    if (file) {
-      if (file.size() > MAX_LOG_SIZE) {
+    if (file)
+    {
+      if (file.size() > MAX_LOG_SIZE)
+      {
         file.close();
         file = LittleFS.open(LOG_FILE_PATH, FILE_WRITE);
       }
-      
-      if (file) {
-        file.write((const uint8_t*)rtcLogBuffer, rtcLogIndex);
+
+      if (file)
+      {
+        file.write((const uint8_t *)rtcLogBuffer, rtcLogIndex);
         file.close();
         rtcLogIndex = 0;
         rtcLogBuffer[0] = '\0';
@@ -64,21 +69,21 @@ void logStatusToFile(const char* data, bool forceFlush = false)
   }
 
   // Store data in the RTC buffer if it fits
-  if (dataLen < RAM_BUF_MAX_SIZE - 1) {
+  if (dataLen < RAM_BUF_MAX_SIZE - 1)
+  {
     memcpy(rtcLogBuffer + rtcLogIndex, data, dataLen);
     rtcLogIndex += dataLen;
     rtcLogBuffer[rtcLogIndex] = '\0'; // Ensure null-termination
   }
 }
 
-// FreeRTOS task to periodically print system information
 void systemInfoTask(void *parameter)
 {
   static int lastLoggedState = -1;
   static unsigned long lastFlashWrite = 0;
   const unsigned long FLASH_WRITE_INTERVAL = 600000; // 10 minutes
 
-  // Wait for the system to reach a stable connected state (WiFi, NTP, and Initial OTA check finished)
+  // Wait for the system to reach a stable connected state
   while (currentState != STATE_CONNECTED)
   {
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -88,57 +93,62 @@ void systemInfoTask(void *parameter)
 
   for (;;)
   {
-    rtcUpdate(); // Check for day change drift correction
+    // Process safety checks (Voltage monitoring & Safe Mode)
+    safetyUpdate();
 
-    // Use a stack-allocated buffer for formatting. 
-    // This prevents heap allocations and fragmentation entirely.
+    // Only process RTC updates if power is stable
+    if (!isSafeMode)
+    {
+      rtcUpdate();
+    }
+
     char buffer[512];
     int offset = 0;
 
-    // Calculate uptime in days, hours, minutes
+    // Calculate uptime
     unsigned long totalSeconds = millis() / 1000;
     int days = totalSeconds / 86400;
     int hours = (totalSeconds % 86400) / 3600;
     int mins = (totalSeconds % 3600) / 60;
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "\n--- System Status Report ---\n");
-    if (isSafeMode) offset += snprintf(buffer + offset, sizeof(buffer) - offset, "MODE:          SAFE MODE (LOW POWER)\n");
+    if (isSafeMode)
+    {
+      offset += snprintf(buffer + offset, sizeof(buffer) - offset, "MODE:          SAFE MODE (LOW POWER)\n");
+    }
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Uptime:        %dd %dh %dm\n", days, hours, mins);
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Internal RTC:  %s\n", rtcGetLocalTimeStr().c_str());
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "WiFi Status:   %s\n", wifiConnected ? "Connected" : "Disconnected");
-    
+
     uint32_t vcc = getSystemVoltage();
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Voltage:       %u mV (%s)\n", vcc, vcc < VOLTAGE_MIN_SAFE_MV ? "LOW" : "OK");
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Voltage:       %u mV (%s)\n", vcc, (vcc < VOLTAGE_MIN_SAFE_MV) ? "LOW" : "OK");
 
     if (wifiConnected)
     {
-        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "IP Address:    %s\n", WiFi.localIP().toString().c_str());
-        offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Signal (RSSI): %d dBm\n", WiFi.RSSI());
+      offset += snprintf(buffer + offset, sizeof(buffer) - offset, "IP Address:    %s\n", WiFi.localIP().toString().c_str());
+      offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Signal (RSSI): %d dBm\n", WiFi.RSSI());
     }
 
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, 
-        "Free Heap:     %u KB\nFree PSRAM:    %u KB\nState:         %d\nOTA:           %s\n",
-        ESP.getFreeHeap() / 1024, 
-        ESP.getFreePsram() / 1024, 
-        currentState, 
-        isOtaInProgress() ? "Yes" : "No"
-    );
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset,
+                       "Free Heap:     %u KB\nFree PSRAM:    %u KB\nState:         %d\nOTA In Prog:   %s\n",
+                       ESP.getFreeHeap() / 1024,
+                       ESP.getFreePsram() / 1024,
+                       currentState,
+                       isOtaInProgress() ? "Yes" : "No");
 
     offset += snprintf(buffer + offset, sizeof(buffer) - offset, "----------------------------\n");
 
-    // Output to Serial
     Serial.print(buffer);
 
-    // Decide if we should force a write to Flash
     bool criticalChange = (currentState != lastLoggedState);
     bool intervalReached = (millis() - lastFlashWrite >= FLASH_WRITE_INTERVAL);
 
     logStatusToFile(buffer, criticalChange || intervalReached);
 
-    if (criticalChange || intervalReached) lastFlashWrite = millis();
+    if (criticalChange || intervalReached)
+      lastFlashWrite = millis();
     lastLoggedState = currentState;
 
-    // Wait for 1 minute before printing the next report
     vTaskDelay(pdMS_TO_TICKS(60000));
   }
 }
@@ -149,14 +159,19 @@ void setup()
   delay(10000); // 10sec boot delay for serial monitor
   Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
 
+  rtcInit(); // Initialize RTC and load Geo-Cache
+
   // Handle RTC Memory persistence logic
   esp_reset_reason_t reason = esp_reset_reason();
-  if (reason == ESP_RST_POWERON || reason == ESP_RST_BROWNOUT) {
+  if (reason == ESP_RST_POWERON || reason == ESP_RST_BROWNOUT)
+  {
     // Fresh boot: zero out the index to prevent reading garbage
     rtcLogIndex = 0;
     rtcLogBuffer[0] = '\0';
     Serial.println("RTC Memory: Initialized fresh log buffer.");
-  } else {
+  }
+  else
+  {
     // Software reset or Deep Sleep wake: preserve index and log status
     Serial.printf("RTC Memory: Preserved %u bytes of log data. (Reset Reason: %d)\n", rtcLogIndex, reason);
   }
@@ -185,6 +200,7 @@ void setup()
   Serial.println("---------------------------\n");
 
   ledInit();
+  safetyInit();
   wifiInit();
 
   xTaskCreate(
@@ -211,6 +227,6 @@ void loop()
 {
   // Process Serial commands
   commandUpdate();
-  
+
   vTaskDelay(pdMS_TO_TICKS(100));
 }
