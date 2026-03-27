@@ -1,0 +1,140 @@
+#include "OTA_Manager.h"
+#include <WiFi.h>
+#include <Preferences.h>
+#include "LED_Manager.h"  // for ledSetColor if direct
+
+// Globals (definitions for externs in define.h)
+String localOtaVersion = "";
+time_t lastOtaCheck = 0;
+bool otaInProgress = false;
+TaskHandle_t otaTaskHandle = NULL;
+
+bool isOtaInProgress() {
+  return otaInProgress;
+}
+
+void otaCheckAfterNtp() {
+  if (currentState != STATE_CONNECTED) return;
+  
+  Serial.println("OTA: Starting version check after NTP...");
+  currentState = STATE_OTA_CHECK;
+  
+  // Load local version from prefs
+  if (!prefs.begin("ota", false)) {
+    Serial.println("OTA: Failed to open prefs");
+    currentState = STATE_CONNECTED;
+    return;
+  }
+  localOtaVersion = prefs.getString("ota-version", "0.0.0");
+  lastOtaCheck = prefs.getLong("last-check", 0);
+  prefs.end();
+  
+  Serial.printf("OTA: Local version: %s, Last check: %ld\n", localOtaVersion.c_str(), lastOtaCheck);
+  
+  // Check if need to check (daily)
+  if (g_epochTime > 0 && (g_epochTime - lastOtaCheck > OTA_CHECK_INTERVAL)) {
+    HTTPClient http;
+    http.begin(OTA_VERSION_URL);
+    http.addHeader("User-Agent", "ESP32-OTA");
+    int code = http.GET();
+    
+    if (code == HTTP_CODE_OK) {
+      WiFiClient * versionStream = http.getStreamPtr();
+      String remoteVersion = "";
+      while (versionStream->available()) {
+        remoteVersion += (char)versionStream->read();
+      }
+      http.end();
+      remoteVersion.trim();
+      Serial.printf("OTA: Remote version: %s\n", remoteVersion.c_str());
+      
+      if (remoteVersion.length() > 0 && remoteVersion != localOtaVersion) {
+        // Simple string compare; assume semantic versioning
+        Serial.println("OTA: New version found! Starting update...");
+        // Save new version
+        prefs.begin("ota", false);
+        prefs.putString("ota-version", remoteVersion);
+        prefs.end();
+        otaInProgress = true;
+        currentState = STATE_OTA_UPDATE;
+        xTaskCreate(otaUpdateTask, "OTAUpdate", 8192, NULL, 2, &otaTaskHandle);
+        return;
+      }
+    } else {
+      Serial.printf("OTA: Version fetch failed: %d\n", code);
+      http.end();
+    }
+  } else {
+    Serial.println("OTA: No check needed (recent or no time)");
+  }
+  
+  // Save last check even if no update
+  prefs.begin("ota", false);
+  prefs.putLong("last-check", g_epochTime);
+  prefs.end();
+  
+  currentState = STATE_CONNECTED;
+  Serial.println("OTA: Check complete - up to date");
+}
+
+void otaUpdateTask(void *parameter) {
+  Serial.println("OTA Task: Starting firmware download...");
+  
+  HTTPClient http;
+  http.begin(OTA_FIRMWARE_URL);
+  http.addHeader("User-Agent", "ESP32-OTA");
+  
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("OTA: Firmware fetch failed: %d\n", code);
+    http.end();
+    otaInProgress = false;
+    currentState = STATE_ERROR;
+    vTaskDelete(NULL);
+    return;
+  }
+  
+  int contentLength = http.getSize();
+  Serial.printf("OTA: Firmware size: %d bytes\n", contentLength);
+  
+  WiFiClient *stream = http.getStreamPtr();
+  
+  // Update
+  if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {  // Or contentLength if known
+    Serial.println("OTA: Update begin failed");
+    http.end();
+    otaInProgress = false;
+    vTaskDelete(NULL);
+    return;
+  }
+  
+  uint32_t written = 0;
+  uint8_t buff[512];
+  size_t len;
+  
+  while (http.connected() && (len = stream->available()) && (contentLength == -1 || written < (uint32_t)contentLength)) {
+    size_t read_len = min(len, sizeof(buff));
+    size_t read = stream->readBytes(buff, read_len);
+    if (read > 0) {
+      size_t w = Update.write(buff, read);
+      written += w;
+    }
+    yield();
+  }
+  
+  http.end();
+  
+  if (Update.end(true)) {
+    Serial.printf("OTA: Success! Written %u bytes, restarting...\n", written);
+  } else {
+    Serial.printf("OTA: Update failed! Error %d: %s (written %u)\n", Update.getError(), Update.errorString(), written);
+    otaInProgress = false;
+    currentState = STATE_ERROR;
+    vTaskDelete(NULL);
+    return;
+  }
+  
+  otaInProgress = false;
+  ESP.restart();
+}
+
