@@ -8,6 +8,8 @@
 #include "RTC_Manager.h"
 #include "Safety_Manager.h"
 #include "Command_Manager.h"
+#include "Thermal_Manager.h"
+
 #include <Preferences.h>
 #include <LittleFS.h>
 #include <esp_system.h>
@@ -48,30 +50,31 @@ void logStatusToFile(const char *data, bool forceFlush = false)
     if (!isVoltageSafe())
     {
       Serial.printf("LOG ERROR: Voltage too low (%u mV). Postponing Flash write.\n", currentV);
-      return;
     }
-
-    File file = LittleFS.open(LOG_FILE_PATH, FILE_APPEND);
-    if (file)
+    else
     {
-      if (file.size() > MAX_LOG_SIZE)
-      {
-        file.close();
-        file = LittleFS.open(LOG_FILE_PATH, FILE_WRITE);
-      }
-
+      File file = LittleFS.open(LOG_FILE_PATH, FILE_APPEND);
       if (file)
       {
-        file.write((const uint8_t *)rtcLogBuffer, rtcLogIndex);
-        file.close();
-        rtcLogIndex = 0;
-        rtcLogBuffer[0] = '\0';
+        if (file.size() > MAX_LOG_SIZE)
+        {
+          file.close();
+          file = LittleFS.open(LOG_FILE_PATH, FILE_WRITE);
+        }
+
+        if (file)
+        {
+          file.write((const uint8_t *)rtcLogBuffer, rtcLogIndex);
+          file.close();
+          rtcLogIndex = 0;
+          rtcLogBuffer[0] = '\0';
+        }
       }
     }
   }
 
   // Store data in the RTC buffer if it fits
-  if (dataLen < RAM_BUF_MAX_SIZE - 1)
+  if (rtcLogIndex + dataLen < RAM_BUF_MAX_SIZE - 1)
   {
     memcpy(rtcLogBuffer + rtcLogIndex, data, dataLen);
     rtcLogIndex += dataLen;
@@ -104,48 +107,55 @@ void systemInfoTask(void *parameter)
       rtcUpdate();
     }
 
-    char buffer[512];
-    int offset = 0;
+    // Use a larger buffer and safer string construction to prevent stack/global corruption
+    String report = "";
+    report.reserve(1024);
 
     // Calculate uptime
     unsigned long totalSeconds = millis() / 1000;
     int days = totalSeconds / 86400;
     int hours = (totalSeconds % 86400) / 3600;
     int mins = (totalSeconds % 3600) / 60;
-
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "\n--- System Status Report ---\n");
-    if (isSafeMode)
-    {
-      offset += snprintf(buffer + offset, sizeof(buffer) - offset, "MODE:          SAFE MODE (LOW POWER)\n");
-    }
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Uptime:        %dd %dh %dm\n", days, hours, mins);
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Internal RTC:  %s\n", rtcGetLocalTimeStr().c_str());
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "WiFi Status:   %s\n", wifiConnected ? "Connected" : "Disconnected");
-
     uint32_t vcc = getSystemVoltage();
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Voltage:       %u mV (%s)\n", vcc, (vcc < VOLTAGE_MIN_SAFE_MV) ? "LOW" : "OK");
+
+    report += "\n--- System Status Report ---\n";
+    if (isSafeMode) report += "MODE:          SAFE MODE (LOW POWER)\n";
+    
+    char line[128];
+    snprintf(line, sizeof(line), "Uptime:        %dd %dh %dm\n", days, hours, mins);
+    report += line;
+    report += "Internal RTC:  " + rtcGetLocalTimeStr() + "\n";
+    report += "WiFi Status:   "; report += (wifiConnected ? "Connected" : "Disconnected"); report += "\n";
+
+    snprintf(line, sizeof(line), "Voltage:       %u mV (%s)\n", vcc, (vcc < VOLTAGE_MIN_SAFE_MV) ? "LOW" : "OK");
+    report += line;
+
+    // Add Thermal Monitoring Data
+    if (dhtEnabled) {
+      snprintf(line, sizeof(line), "Thermal:       %.1f C, %.1f %%\n", avg_temp_c, avg_humid_pct);
+    } else {
+      snprintf(line, sizeof(line), "Thermal:       Sensor Error (Disabled)\n");
+    }
+    report += line;
 
     if (wifiConnected)
     {
-      offset += snprintf(buffer + offset, sizeof(buffer) - offset, "IP Address:    %s\n", WiFi.localIP().toString().c_str());
-      offset += snprintf(buffer + offset, sizeof(buffer) - offset, "Signal (RSSI): %d dBm\n", WiFi.RSSI());
+      report += "IP Address:    " + WiFi.localIP().toString() + "\n";
+      snprintf(line, sizeof(line), "Signal (RSSI): %d dBm\n", WiFi.RSSI());
+      report += line;
     }
 
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                       "Free Heap:     %u KB\nFree PSRAM:    %u KB\nState:         %d\nOTA In Prog:   %s\n",
-                       ESP.getFreeHeap() / 1024,
-                       ESP.getFreePsram() / 1024,
-                       currentState,
-                       isOtaInProgress() ? "Yes" : "No");
+    snprintf(line, sizeof(line), "Free Heap:     %u KB\nFree PSRAM:    %u KB\nState:         %d\nOTA In Prog:   %s\n",
+             ESP.getFreeHeap() / 1024, ESP.getFreePsram() / 1024, currentState, isOtaInProgress() ? "Yes" : "No");
+    report += line;
+    report += "----------------------------\n";
 
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "----------------------------\n");
-
-    Serial.print(buffer);
+    Serial.print(report);
 
     bool criticalChange = (currentState != lastLoggedState);
     bool intervalReached = (millis() - lastFlashWrite >= FLASH_WRITE_INTERVAL);
 
-    logStatusToFile(buffer, criticalChange || intervalReached);
+    logStatusToFile(report.c_str(), criticalChange || intervalReached);
 
     if (criticalChange || intervalReached)
       lastFlashWrite = millis();
@@ -167,7 +177,7 @@ Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
   sprintf(mac_num, "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   String mac_str(mac_num);
   g_deviceId = "COSYFARM-" + mac_str;
-  Serial.printf("Device ID: %s (MAC lower 16bit: %llX)\n", g_deviceId.c_str(), mac);
+  Serial.printf("Device ID: %s\n", g_deviceId.c_str());
   prefs.begin("device", false);
   prefs.putString("device-id", g_deviceId);
   prefs.end();
@@ -234,7 +244,19 @@ Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
       1,              // Priority of the task
       NULL);          // Task handle
 
-  Serial.println("Setup complete - monitor LED/WiFi/OTA");
+  thermalInit();
+
+  xTaskCreate(
+      thermalTask,
+      "ThermalSensor",
+      8192,
+      NULL,
+      1,
+      NULL);
+
+
+  Serial.println("Setup complete - monitor LED/WiFi/OTA/Thermal");
+
 }
 
 void loop()

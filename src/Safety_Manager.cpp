@@ -8,7 +8,8 @@
 extern void logStatusToFile(const char* data, bool forceFlush = false);
 
 void safetyInit() {
-    pinMode(PIN_VOLTAGE_SENSE, INPUT);
+    // ADC pins should ideally be set to ANALOG mode, not just INPUT
+    pinMode(PIN_VOLTAGE_SENSE, ANALOG); 
     // Set attenuation to 11dB to allow reading up to ~3.3V on the pin.
     // This is required to measure voltages > 1.1V through the voltage divider.
     analogSetAttenuation(ADC_11db);

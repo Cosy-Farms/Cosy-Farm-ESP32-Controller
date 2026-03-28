@@ -74,9 +74,14 @@ extern String g_deviceId;
 // NTP (Network Time Protocol) settings.
 #define NTP_TIMEOUT_MS 3000
 
+#define PIN_DHT22 5
+
+extern float avg_temp_c;
+extern float avg_humid_pct;
+
 // Voltage Monitoring
 #define PIN_VOLTAGE_SENSE 4      // Use a GPIO with ADC capability (e.g., GPIO 4)
-#define VOLTAGE_DIVIDER_RATIO 2.0 // Adjust based on your resistor divider (e.g., 10k/10k = 2)
+#define VOLTAGE_DIVIDER_RATIO 5.7 // Example for 47k/10k divider
 #define VOLTAGE_MIN_SAFE_MV 3100  // Minimum millivolts required to safely write to Flash
 #define VOLTAGE_CRITICAL_MV 3000  // Threshold to enter Safe Mode
 #define VOLTAGE_RECOVERY_MV 3250  // Threshold to exit Safe Mode (Hysteresis)
