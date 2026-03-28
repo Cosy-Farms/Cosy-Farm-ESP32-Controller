@@ -143,12 +143,8 @@ void wifiMonitorTask(void *parameter)
   {
     unsigned long now = millis(); // Get current time.
 
-    // If in Safe Mode, skip connectivity logic and keep LEDs off
-    if (isSafeMode) {
-      ledSetColor(0, 0, 0);
-      vTaskDelay(pdMS_TO_TICKS(1000));
-      continue;
-    }
+  // Safe mode removed - normal operation
+
     
     // Update LED based on the current state.
     ledBlink(currentState, now);
