@@ -52,9 +52,6 @@ void resetFadeState() {
 void ledBlink(int state, unsigned long now) {
   static int lastState = -1; // Track the previous state to detect changes
 
-  // Respect Safe Mode: Keep LEDs off
-  if (isSafeMode) return;
-
   // If state changed, reset fade for a fresh start
   if (state != lastState) {
     resetFadeState();

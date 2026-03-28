@@ -6,8 +6,8 @@
 #include "NTP_Manager.h"
 #include "OTA_Manager.h"
 #include "RTC_Manager.h"
-#include "Safety_Manager.h"
 #include "Command_Manager.h"
+
 #include "Thermal_Manager.h"
 
 #include <Preferences.h>
@@ -20,7 +20,6 @@ Preferences prefs;
 int currentState = 0;
 int ntpRetryCount = 0;
 bool wifiConnected = false;
-bool isSafeMode = false;
 String g_deviceId = "";
 
 #define LOG_FILE_PATH "/system_log.txt"
@@ -37,7 +36,6 @@ RTC_DATA_ATTR size_t rtcLogIndex = 0;
  */
 void logStatusToFile(const char *data, bool forceFlush = false)
 {
-  uint32_t currentV = getSystemVoltage();
   size_t dataLen = strlen(data);
 
   // Check if adding this data would overflow the buffer
@@ -46,29 +44,21 @@ void logStatusToFile(const char *data, bool forceFlush = false)
   // Flush to Flash if forced or if an overflow is about to occur
   if ((forceFlush || willOverflow) && rtcLogIndex > 0)
   {
-    // Brownout Prevention: Abort Flash write if voltage is unstable
-    if (!isVoltageSafe())
+    File file = LittleFS.open(LOG_FILE_PATH, FILE_APPEND);
+    if (file)
     {
-      Serial.printf("LOG ERROR: Voltage too low (%u mV). Postponing Flash write.\n", currentV);
-    }
-    else
-    {
-      File file = LittleFS.open(LOG_FILE_PATH, FILE_APPEND);
+      if (file.size() > MAX_LOG_SIZE)
+      {
+        file.close();
+        file = LittleFS.open(LOG_FILE_PATH, FILE_WRITE);
+      }
+
       if (file)
       {
-        if (file.size() > MAX_LOG_SIZE)
-        {
-          file.close();
-          file = LittleFS.open(LOG_FILE_PATH, FILE_WRITE);
-        }
-
-        if (file)
-        {
-          file.write((const uint8_t *)rtcLogBuffer, rtcLogIndex);
-          file.close();
-          rtcLogIndex = 0;
-          rtcLogBuffer[0] = '\0';
-        }
+        file.write((const uint8_t *)rtcLogBuffer, rtcLogIndex);
+        file.close();
+        rtcLogIndex = 0;
+        rtcLogBuffer[0] = '\0';
       }
     }
   }
@@ -99,13 +89,7 @@ void systemInfoTask(void *parameter)
   for (;;)
   {
     // Process safety checks (Voltage monitoring & Safe Mode)
-    safetyUpdate();
-
-    // Only process RTC updates if power is stable
-    if (!isSafeMode)
-    {
-      rtcUpdate();
-    }
+    rtcUpdate();
 
     // Use a larger buffer and safer string construction to prevent stack/global corruption
     String report = "";
@@ -119,17 +103,11 @@ void systemInfoTask(void *parameter)
     uint32_t vcc = getSystemVoltage();
 
     report += "\n--- System Status Report ---\n";
-    if (isSafeMode) report += "MODE:          SAFE MODE (LOW POWER)\n";
-    
     char line[128];
     snprintf(line, sizeof(line), "Uptime:        %dd %dh %dm\n", days, hours, mins);
     report += line;
     report += "Internal RTC:  " + rtcGetLocalTimeStr() + "\n";
     report += "WiFi Status:   "; report += (wifiConnected ? "Connected" : "Disconnected"); report += "\n";
-
-    snprintf(line, sizeof(line), "Voltage:       %u mV (%s)\n", vcc, (vcc < VOLTAGE_MIN_SAFE_MV) ? "LOW" : "OK");
-    report += line;
-
     // Add Thermal Monitoring Data
     if (dhtEnabled) {
       snprintf(line, sizeof(line), "Thermal:       %.1f C, %.1f %%\n", avg_temp_c, avg_humid_pct);
@@ -224,7 +202,6 @@ Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
   Serial.println("---------------------------\n");
 
   ledInit();
-  safetyInit();
   wifiInit();
 
   xTaskCreate(

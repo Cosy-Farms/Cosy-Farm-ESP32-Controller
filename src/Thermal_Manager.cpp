@@ -18,12 +18,20 @@ bool samples_filled = false;
 
 void thermalInit() {
   dht.begin();
-  Serial.println("Thermal Manager: DHT22 on GPIO22 initialized");
+  Serial.printf("Thermal Manager: DHT22 on GPIO%d initialized\n", PIN_DHT22);
   // Init samples to 0
   for (int i = 0; i < AVG_SAMPLES; i++) {
     temp_samples[i] = 0.0f;
     humid_samples[i] = 0.0f;
   }
+}
+
+void thermalReset() {
+  consecutiveFails = 0;
+  samples_filled = false;
+  sample_index = 0;
+  dhtEnabled = true;
+  Serial.println("Thermal: Sensor flag reset. Attempting to resume monitoring...");
 }
 
 void thermalUpdate() {
@@ -66,14 +74,14 @@ void thermalUpdate() {
 void thermalTask(void *parameter) {
   Serial.println("Thermal Task: 0.5Hz (2s) sampling started");
   for (;;) {
-    if (!dhtEnabled) {
-      Serial.println("Thermal Task: Sensor is disabled. Terminating task.");
-      // Optional: Clean up resources if needed
-      vTaskDelete(NULL); 
-      return; // Ensure function exits
+    if (dhtEnabled) {
+      thermalUpdate();
+    } else {
+      // If disabled, just wait without reading to save CPU
+      // We don't delete the task anymore so it can be resumed by the Reset command
+      vTaskDelay(pdMS_TO_TICKS(5000)); 
+      continue;
     }
-
-    thermalUpdate();
     vTaskDelay(pdMS_TO_TICKS(2000)); // 0.5Hz - DHT22 requirement
   }
 }

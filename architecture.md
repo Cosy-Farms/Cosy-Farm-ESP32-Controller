@@ -13,8 +13,10 @@ ESP32-S3 WiFi controller for Cosy Farm. Features: RGB LED status, NTP geo/tz syn
 | 1 | RGB Green LED | LED cathode via resistor | 3.3V 40mA max | PWM ch1 freq1kHz res8bit |
 | 2 | RGB Red LED | LED cathode via resistor | 3.3V 40mA max | PWM ch0 |
 | 3 | RGB Blue LED | LED cathode via resistor | 3.3V 40mA max | PWM ch2 |
-| 4 | Voltage Sense | Voltage divider (R1/R2 to Vcc) | 0-3.3V ADC (11dB atten) | ADC1_CH3, divider ratio2.0, safe>=3100mV |
-| 5 | DHT22 Data | DHT22 Sensor | 3.3V Logic | Requires 4.7k-10k Pull-up |
+| 4 | Unused | - | - | - |
+| 5 | Unused | - | - | - |
+| 6 | DHT22 Data | DHT22 Sensor | 3.3V Logic | Requires 4.7k-10k Pull-up |
+| 7 | Unused | - | - | - |
 | 43 | UART TX | USB CDC | 3.3V | Default Serial.print |
 | 44 | UART RX | USB CDC | 3.3V | Default Serial.read |
 | - | Strapping | GPIO0/3/45/46 boot mode | 3.3V | GPIO0 GND for download, GPIO3/45/46 high for normal boot |

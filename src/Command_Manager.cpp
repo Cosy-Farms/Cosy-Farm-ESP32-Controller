@@ -3,6 +3,7 @@
 #include "WiFi_Manager.h"
 #include <nvs_flash.h>
 #include <Preferences.h>
+#include "Thermal_Manager.h"
 
 void commandUpdate() {
     if (Serial.available() > 0) {
@@ -74,6 +75,12 @@ void commandUpdate() {
             } else {
                 Serial.printf("[ERROR] NVS Erase failed: 0x%x\n", err);
             }
+        }
+
+        // Command 'T': Reset Thermal Sensor
+        if (cmd == 'T' || cmd == 't') {
+            Serial.println("\n[COMMAND] Resetting Thermal Sensor...");
+            thermalReset();
         }
     }
 }

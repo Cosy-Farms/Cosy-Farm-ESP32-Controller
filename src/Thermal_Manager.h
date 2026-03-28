@@ -5,6 +5,7 @@
 
 void thermalInit();
 void thermalUpdate();
+void thermalReset();
 void thermalTask(void *parameter);
 
 extern float avg_temp_c;
