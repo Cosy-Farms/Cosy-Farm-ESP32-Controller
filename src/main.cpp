@@ -203,7 +203,7 @@ void setup()
 
   // Print ESP32 Chip and Memory Information
   Serial.println("\n--- Hardware Information ---");
-  Serial.printf("Chip Model Ascending("Chip Model:    %s\n", ESP.getChipModel());
+  Serial.printf("Chip Model:    %s\n", ESP.getChipModel());
   Serial.printf("Chip Revision: %d\n", ESP.getChipRevision());
   Serial.printf("Cores:         %d\n", ESP.getChipCores());
   Serial.printf("CPU Frequency: %d MHz\n", ESP.getCpuFreqMHz());
@@ -243,8 +243,6 @@ void setup()
       NULL,
       1,
       NULL);
-
-
 
   Serial.println("Setup complete - monitor LED/WiFi/OTA/Thermal");
 }
