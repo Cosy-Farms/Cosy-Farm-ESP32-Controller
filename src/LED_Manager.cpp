@@ -5,11 +5,13 @@
 // unsigned long lastBlink = 0; // No longer needed for fading states
 // bool blinkState = false; // No longer needed for fading states
 
-// Fading variables
-uint8_t currentFadeValue = 0;
-int8_t fadeDirection = 1; // 1 for fading up, -1 for fading down
-unsigned long lastFadeUpdate = 0;
-const unsigned long fadeIntervalMs = 10; // Update fade value every 10ms for smoothness
+
+// Blink variables
+bool blinkState = false;
+unsigned long lastBlinkToggle = 0;
+const unsigned long BLINK_INTERVAL = 500; // 1Hz blink
+const unsigned long FAST_BLINK_INTERVAL = 200; // 2.5Hz for errors/NTP
+
 
 // Initializes the LED pins for PWM control.
 void ledInit() {
@@ -39,76 +41,54 @@ void ledSetColor(uint8_t r, uint8_t g, uint8_t b) {
   ledcWrite(PWM_CH_B, b);
 }
 
-// Helper to reset fade state when switching to a new fading pattern
-void resetFadeState() {
-  currentFadeValue = 0;
-  fadeDirection = 1;
-  lastFadeUpdate = millis();
-}
+// Blink state machine - hard on/off toggle
+
+
+
 
 // Controls LED blinking patterns based on the current device state.
 // state: The current operational state of the device (from define.h).
 // now: The current time in milliseconds (from millis()).
 void ledBlink(int state, unsigned long now) {
-  static int lastState = -1; // Track the previous state to detect changes
-
-  // If state changed, reset fade for a fresh start
+  static int lastState = -1;
   if (state != lastState) {
-    resetFadeState();
     lastState = state;
+    blinkState = false;
+    lastBlinkToggle = now - BLINK_INTERVAL; // Force immediate toggle
   }
 
-  // Default 1Hz fade step: 255 / (500ms / 10ms) = 5
-  uint8_t fadeStep = 5; 
-
-  // Requirement: Fast fading for NTP & RTC Task (approx 3Hz)
-  if (state == STATE_NTP_SYNC) fadeStep = 15;
-
-  // Update fade value for states that use fading
-  bool isFadingState = (state == STATE_NTP_SYNC || state == STATE_CONNECTING || 
-                        state == STATE_ERROR || state == STATE_OTA_CHECK || 
-                        state == STATE_OTA_UPDATE);
-
-  if (isFadingState && (now - lastFadeUpdate >= fadeIntervalMs)) {
-    lastFadeUpdate = now;
-    currentFadeValue += fadeDirection * fadeStep;
-
-    if (currentFadeValue >= 255) {
-      currentFadeValue = 255;
-      fadeDirection = -1; // Start fading down
-    } else if (currentFadeValue <= 0) {
-      currentFadeValue = 0;
-      fadeDirection = 1; // Start fading up
-    }
+  unsigned long blinkInt = (state == STATE_NTP_SYNC || state == STATE_ERROR) ? FAST_BLINK_INTERVAL : BLINK_INTERVAL;
+  if (now - lastBlinkToggle >= blinkInt) {
+    blinkState = !blinkState;
+    lastBlinkToggle = now;
   }
+
 
   switch(state) {
-    case STATE_NTP_SYNC: {
-      ledSetColor(0, currentFadeValue, 0); // Green fade
+    case STATE_NTP_SYNC:
+      ledSetColor(blinkState ? 0 : 255, blinkState ? 255 : 0, 0); // Green blink
       break;
-    }
     case STATE_AP:
-      ledSetColor(255, 255, 0);  // Solid yellow
+      ledSetColor(blinkState ? 255 : 0, blinkState ? 255 : 0, 0); // Yellow blink
       break;
-    case STATE_CONNECTING: {
-      ledSetColor(0, 0, currentFadeValue); // Blue fade
+    case STATE_CONNECTING:
+      ledSetColor(0, 0, blinkState ? 255 : 0); // Blue blink
       break;
-    }
     case STATE_CONNECTED:
-      ledSetColor(0, 255, 0);  // Solid green
+      ledSetColor(0, 255, 0); // Solid green
       break;
-    case STATE_ERROR: {
-      ledSetColor(currentFadeValue, 0, 0); // Red fade
+    case STATE_ERROR:
+      ledSetColor(blinkState ? 255 : 0, 0, 0); // Red blink
       break;
-    }
     case STATE_OTA_CHECK:
-      ledSetColor(currentFadeValue, 0, currentFadeValue); // Magenta fade
+      ledSetColor(blinkState ? 255 : 0, 0, blinkState ? 255 : 0); // Magenta blink
       break;
     case STATE_OTA_UPDATE:
-      ledSetColor(currentFadeValue, currentFadeValue, currentFadeValue); // White fade
+      ledSetColor(blinkState ? 255 : 0, blinkState ? 255 : 0, blinkState ? 255 : 0); // White blink
       break;
     default:
-      ledSetColor(0, 0, 0); // Off
+      ledSetColor(0, 0, 0);
       break;
   }
 }
+

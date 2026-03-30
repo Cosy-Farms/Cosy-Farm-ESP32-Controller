@@ -1,6 +1,7 @@
 #include "RTC_Manager.h"
 #include <time.h>
 #include "NTP_Manager.h"
+#include "ACWater_Manager.h"
 
 static int lastSyncDay = -1;
 static char lastSyncTimestamp[20] = "Never"; // Fixed buffer: YYYY-MM-DD HH:MM:SS
@@ -29,6 +30,7 @@ void rtcUpdate() {
     // Requirement: Correct drift on day change event.
     if (lastSyncDay != -1 && timeinfo.tm_mday != lastSyncDay) {
         Serial.println("Internal RTC: Day change detected. Triggering NTP re-sync to correct drift...");
+        acWaterResetDaily();
         ntpUpdateOnConnect(); // This will trigger rtcSyncWithNTP() internally
     }
 }

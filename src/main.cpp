@@ -10,6 +10,7 @@
 
 #include "Thermal_Manager.h"
 #include "Tank_Manager.h"
+#include "ACWater_Manager.h"
 
 #include <Preferences.h>
 #include <LittleFS.h>
@@ -141,6 +142,9 @@ void systemInfoTask(void *parameter)
     }
     report += line;
 
+    snprintf(line, sizeof(line), "AC Pumped:     %.1f L (Today)\n", g_acWaterPumpedToday);
+    report += line;
+
     if (wifiConnected)
     {
       report += "IP Address:    " + WiFi.localIP().toString() + "\n";
@@ -244,6 +248,14 @@ void setup()
       NULL,           // Parameter to pass to the task
       1,              // Priority of the task
       NULL);          // Task handle
+
+  xTaskCreate(
+      acWaterTask,
+      "ACWaterPump",
+      2048,
+      NULL,
+      1,
+      NULL);
 
   tankInit();
   xTaskCreate(

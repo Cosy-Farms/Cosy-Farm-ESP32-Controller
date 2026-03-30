@@ -89,4 +89,12 @@ extern float g_waterLevelPct;
 extern float g_waterDistanceCm;
 extern bool tankSensorEnabled;
 
+// AC Condensate Management
+#define PIN_AC_FLOAT 8
+#define PIN_AC_PUMP 9
+#define AC_FLOAT_DEBOUNCE_MS 3000UL // 3 seconds of stable signal required
+#define AC_PUMP_RUN_TIME_MS 90000UL // 90 seconds (1.33 min required for 2L @ 1.5L/min)
+extern float g_acWaterPumpedToday;
+extern bool g_acPumpRunning;
+
 #endif
