@@ -17,6 +17,9 @@ unsigned long rollbackTimer = 0;
 // Allow 5 minutes for the new firmware to successfully connect and sync.
 #define ROLLBACK_TIMEOUT_MS 300000 
 
+// Flag to trigger NTP and OTA check outside of the WiFi event task context
+static bool g_syncTriggered = false;
+
 // Forward declaration or move the function definition up to ensure 
 // it is in scope for the event handlers.
 bool ntpAttempt()
@@ -60,18 +63,8 @@ void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.println("Rollback Protection: WiFi verified! Success flag cleared.");
   }
 
-  // Attempt NTP synchronization.
-  if (!ntpAttempt()) {
-    ntpRetryCount++;
-    // If NTP fails multiple times, skip it and proceed to connected state.
-    if (ntpRetryCount >= 3) {
-      Serial.println("NTP failed after 3 tries, skip");
-      currentState = STATE_CONNECTED; // Force state to connected even if NTP failed.
-    }
-  }
-  otaCheckAfterNtp(); // After NTP, check for OTA updates.
-  // The currentState will be set by ntpAttempt() or otaCheckAfterNtp()
-  // to STATE_CONNECTED or STATE_ERROR depending on their outcomes.
+  // Signal the wifiMonitorTask to perform NTP/OTA sync
+  g_syncTriggered = true;
 }
 
 // Event handler for WiFi station disconnected from AP.
@@ -149,6 +142,22 @@ void wifiMonitorTask(void *parameter)
     // Update LED based on the current state.
     ledBlink(currentState, now);
     
+    // Perform NTP and OTA check when triggered (and WiFi is still connected)
+    if (g_syncTriggered && wifiConnected) {
+      g_syncTriggered = false;
+      Serial.println("WiFi Monitor: Starting post-connection sync (NTP/OTA)...");
+      
+      if (!ntpAttempt()) {
+        ntpRetryCount++;
+        if (ntpRetryCount >= 3) {
+          Serial.println("NTP failed after 3 tries, skip");
+          currentState = STATE_CONNECTED;
+        }
+      }
+      
+      otaCheckAfterNtp();
+    }
+
     // Rollback Logic: If WiFi fails to connect within the timeout after an update.
     if (isPendingVerify && (now - rollbackTimer > ROLLBACK_TIMEOUT_MS)) {
       Serial.println("Rollback Protection: Connection timeout! Reverting to previous firmware...");

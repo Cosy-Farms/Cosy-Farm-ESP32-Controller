@@ -4,6 +4,7 @@
 #include <nvs_flash.h>
 #include <Preferences.h>
 #include "Thermal_Manager.h"
+#include "Tank_Manager.h"
 
 void commandUpdate() {
     if (Serial.available() > 0) {
@@ -81,6 +82,7 @@ void commandUpdate() {
         if (cmd == 'T' || cmd == 't') {
             Serial.println("\n[COMMAND] Resetting Thermal Sensor...");
             thermalReset();
+            tankReset();
         }
     }
 }

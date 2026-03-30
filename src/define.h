@@ -78,4 +78,15 @@ extern String g_deviceId;
 
 extern float avg_temp_c;
 extern float avg_humid_pct;
+
+// Tank Management Settings
+#define PIN_TANK_TRIG 4
+#define PIN_TANK_ECHO 5
+#define TANK_FULL_DIST_CM 10.0f  // Distance from sensor to water when 100% full
+#define TANK_EMPTY_DIST_CM 150.0f // Distance from sensor to bottom when 0% full
+
+extern float g_waterLevelPct;
+extern float g_waterDistanceCm;
+extern bool tankSensorEnabled;
+
 #endif

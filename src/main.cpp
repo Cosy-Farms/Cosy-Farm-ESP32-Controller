@@ -9,6 +9,7 @@
 #include "Command_Manager.h"
 
 #include "Thermal_Manager.h"
+#include "Tank_Manager.h"
 
 #include <Preferences.h>
 #include <LittleFS.h>
@@ -130,6 +131,16 @@ void systemInfoTask(void *parameter)
     }
     report += line;
 
+    if (tankSensorEnabled)
+    {
+      snprintf(line, sizeof(line), "Water Level:   %.1f %% (%.1f cm)\n", g_waterLevelPct, g_waterDistanceCm);
+    }
+    else
+    {
+      snprintf(line, sizeof(line), "Water Level:   Sensor Error (Disabled)\n");
+    }
+    report += line;
+
     if (wifiConnected)
     {
       report += "IP Address:    " + WiFi.localIP().toString() + "\n";
@@ -220,7 +231,7 @@ void setup()
   xTaskCreate(
       wifiMonitorTask,
       "WiFiMonitor",
-      4096,
+      8192,
       NULL,
       1,
       NULL);
@@ -233,6 +244,15 @@ void setup()
       NULL,           // Parameter to pass to the task
       1,              // Priority of the task
       NULL);          // Task handle
+
+  tankInit();
+  xTaskCreate(
+      tankTask,
+      "TankLevel",
+      4096,
+      NULL,
+      1,
+      NULL);
 
   thermalInit();
 
