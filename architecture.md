@@ -51,6 +51,9 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32-Controller
 | **Tank_Manager** | HC-SR04 level %, DS18B20 water T | 5s | 4kB | g_waterLevelPct, g_waterDistanceCm, water_temp_c, tankSensorEnabled/ds18b20Enabled. Separate fail/recovery. |
 | **ACWater_Manager** | Float→pump cycles | 200ms | 2kB | g_acWaterPumpedToday (daily 2L increments), g_acPumpRunning. States: IDLE/PUMPING/COOLDOWN/FAULT. |
 | **WiFi_Manager** | AP/STA/NVS creds | Monitor | 8kB | wifiConnected, currentState. Defaults: SSID="COSYFARM"/"12345678". |
+| **Tank_Manager** | HC-SR04 level %, DS18B20 water T | 5s | 4kB | g_waterLevelPct, g_waterDistanceCm, water_temp_c, tankSensorEnabled/ds18b20Enabled. |
+| **ACWater_Manager** | Float→pump cycles | 200ms | 2kB | g_acWaterPumpedToday, g_acPumpRunning. |
+| **WiFi_Manager** | AP/STA/NVS creds | Monitor | 8kB | wifiConnected, currentState. Defaults: SSID=g_deviceId / "12345678". |
 | **systemInfoTask** | 60s Serial/LittleFS reports | 60s | 4kB | Uptime d/h/m, sensors, mem, OTA prog. |
 | **wifiMonitorTask** | Connection watch | Async | 8kB | Updates wifiConnected/state. |
 
