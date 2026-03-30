@@ -16,7 +16,7 @@ ESP32-S3 WiFi controller for Cosy Farm. Features: RGB LED status, NTP geo/tz syn
 | 4 | Unused | - | - | - |
 | 5 | Unused | - | - | - |
 | 6 | DHT22 Data | DHT22 Sensor | 3.3V Logic | Requires 4.7k-10k Pull-up |
-| 7 | Unused | - | - | - |
+| 7 | DS18B20 Data | Waterproof Temp Probe | 3.3V Logic | OneWire, 4.7k pull-up, water tank temp |
 | 43 | UART TX | USB CDC | 3.3V | Default Serial.print |
 | 44 | UART RX | USB CDC | 3.3V | Default Serial.read |
 | - | Strapping | GPIO0/3/45/46 boot mode | 3.3V | GPIO0 GND for download, GPIO3/45/46 high for normal boot |

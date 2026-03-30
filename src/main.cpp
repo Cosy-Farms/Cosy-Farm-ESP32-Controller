@@ -90,7 +90,6 @@ void systemInfoTask(void *parameter)
   {
     rtcUpdate();
 
-
     // Use a larger buffer and safer string construction to prevent stack/global corruption
     String report = "";
     report.reserve(1024);
@@ -102,18 +101,32 @@ void systemInfoTask(void *parameter)
     int mins = (totalSeconds % 3600) / 60;
     uint32_t vcc = 3300; // Fixed 3.3V sim
 
-
     report += "\n--- System Status Report ---\n";
     char line[128];
     snprintf(line, sizeof(line), "Uptime:        %dd %dh %dm\n", days, hours, mins);
     report += line;
     report += "Internal RTC:  " + rtcGetLocalTimeStr() + "\n";
-    report += "WiFi Status:   "; report += (wifiConnected ? "Connected" : "Disconnected"); report += "\n";
+    report += "WiFi Status:   ";
+    report += (wifiConnected ? "Connected" : "Disconnected");
+    report += "\n";
     // Add Thermal Monitoring Data
-    if (dhtEnabled) {
-      snprintf(line, sizeof(line), "Thermal:       %.1f C, %.1f %%\n", avg_temp_c, avg_humid_pct);
-    } else {
-      snprintf(line, sizeof(line), "Thermal:       Sensor Error (Disabled)\n");
+    if (dhtEnabled)
+    {
+      snprintf(line, sizeof(line), "Air Temp:      %.1f C, %.1f %% RH\n", avg_temp_c, avg_humid_pct);
+    }
+    else
+    {
+      snprintf(line, sizeof(line), "Air Temp:      DHT Error (Disabled)\n");
+    }
+    report += line;
+
+    if (ds18b20Enabled)
+    {
+      snprintf(line, sizeof(line), "Water Temp:    %.1f C (DS18B20)\n", water_temp_c);
+    }
+    else
+    {
+      snprintf(line, sizeof(line), "Water Temp:    DS18B20 Error\n");
     }
     report += line;
 
@@ -148,7 +161,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(10000); // 10sec boot delay for serial monitor
-Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
+  Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
   // Generate unique device ID from eFuse MAC
   uint8_t mac[6];
   esp_efuse_mac_get_default(mac);
@@ -160,7 +173,6 @@ Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
   prefs.begin("device", false);
   prefs.putString("device-id", g_deviceId);
   prefs.end();
-
 
   rtcInit(); // Initialize RTC and load Geo-Cache
 
@@ -191,7 +203,7 @@ Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
 
   // Print ESP32 Chip and Memory Information
   Serial.println("\n--- Hardware Information ---");
-  Serial.printf("Chip Model:    %s\n", ESP.getChipModel());
+  Serial.printf("Chip Model Ascending("Chip Model:    %s\n", ESP.getChipModel());
   Serial.printf("Chip Revision: %d\n", ESP.getChipRevision());
   Serial.printf("Cores:         %d\n", ESP.getChipCores());
   Serial.printf("CPU Frequency: %d MHz\n", ESP.getCpuFreqMHz());
@@ -235,7 +247,6 @@ Serial.println("ESP32-S3 WiFi + RGB LED + NTP + OTA Starting...");
 
 
   Serial.println("Setup complete - monitor LED/WiFi/OTA/Thermal");
-
 }
 
 void loop()

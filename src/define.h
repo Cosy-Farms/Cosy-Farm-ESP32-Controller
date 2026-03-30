@@ -74,6 +74,7 @@ extern String g_deviceId;
 #define NTP_TIMEOUT_MS 3000
 
 #define PIN_DHT22 6
+#define PIN_DS18B20 7
 
 extern float avg_temp_c;
 extern float avg_humid_pct;
