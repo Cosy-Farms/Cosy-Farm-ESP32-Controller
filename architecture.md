@@ -31,7 +31,20 @@ Repo: https://github.com/PrathameshMestry/CosyFarm-ESP32-Controller
 - **Storage**: NVS prefs ("device"), LittleFS mounted in setup.
 - **ID**: g_deviceId = "COSYFARM-" + eFuse MAC.
 
+
+
 ### FreeRTOS Tasks (all pri=1)
+
+## UART Serial Commands (115200 baud, single char trigger in commandUpdate())
+
+| Command | Case | Description | Effect |
+|---------|------|-------------|--------|
+| **W/w** | Both | Wipe WiFi Credentials | Clear NVS "wifi-creds", restart to DEFAULT_SSID/PASS from define.h |
+| **C/c** | Both | Manual WiFi Config | Prompt SSID → PASS → save NVS → restart |
+| **S/s** | Both | Sync WiFi Defaults | Copy define.h DEFAULT_SSID/PASS to NVS → restart |
+| **F/f** | Both | Factory Reset | nvs_flash_erase() all partitions → init → restart |
+| **T/t** | Both | Reset Sensors | thermalReset() + tankReset() (re-init enabled) |
+
 | Manager | Purpose | Update Freq | Stack Size | Globals/Key Logic |
 |---------|---------|-------------|------------|-------------------|
 | **Thermal_Manager** | DHT22 air T/RH | 2s | 16kB | avg_temp_c, avg_humid_pct, dhtEnabled. Fail≥5→disable 10min recovery. |
