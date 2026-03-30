@@ -15,9 +15,9 @@ ESP32-S3 WiFi controller for Cosy Farm. Features: RGB LED status, NTP geo/tz syn
 | 3 | RGB B | LED | PWM ch2 |
 | 6 | DHT22 | Air temp/humid | 4.7k pull-up |
 | 7 | DS18B20 | Water temp probe | OneWire, 4.7k pull-up |
-| TRIG | HC-SR04 Trig | Ultrasonic tank level | PIN_TANK_TRIG |
-| ECHO | HC-SR04 Echo | Ultrasonic tank level | PIN_TANK_ECHO |
-| 43/44 | UART | USB | Serial |
+| 4 | HC-SR04 Trig | Tank ultrasonic level | PIN_TANK_TRIG |
+| 5 | HC-SR04 Echo | Tank ultrasonic level | PIN_TANK_ECHO |
+| 43/44 | UART | USB CDC | Serial |
 
 ## Software Stack
 **Managers (FreeRTOS tasks):**
@@ -37,4 +37,4 @@ ESP32-S3 WiFi controller for Cosy Farm. Features: RGB LED status, NTP geo/tz syn
 
 **Libs:** ArduinoJson, DHT, OneWire, DallasTemperature, Preferences, LittleFS
 
-Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller main:26e48f7 (Tank_Manager feat)
+Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller main:9d8fa8e (Tank_Manager + docs)
