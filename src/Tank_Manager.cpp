@@ -62,18 +62,25 @@ void tankUpdate() {
     unsigned long now = millis();
     bool isRecoveryTick = (now - lastTankRecovery >= TANK_RECOVERY_INTERVAL);
 
-    if (isRecoveryTick && !tankSensorEnabled) {
-        lastTankRecovery = now;
+    // Define specific recovery flags for each sensor
+    bool tankRecoveryActive = isRecoveryTick && !tankSensorEnabled;
+    bool dsRecoveryActive = isRecoveryTick && !ds18b20Enabled;
+
+    if (isRecoveryTick) {
+        lastTankRecovery = now; // Reset global timer every 10 minutes
+    }
+
+    if (tankRecoveryActive) {
         Serial.println("Tank: 10-minute recovery attempt for HC-SR04...");
     }
-    if (isRecoveryTick && !ds18b20Enabled) {
+    if (dsRecoveryActive) {
         Serial.println("Tank: 10-minute recovery attempt for DS18B20...");
         waterSensors.begin();
         Serial.printf("Tank: DS18B20 recovery found %d devices\n", waterSensors.getDeviceCount());
     }
 
     // --- HC-SR04 Ultrasonic Update ---
-    if (tankSensorEnabled || isRecoveryTick) {
+    if (tankSensorEnabled || tankRecoveryActive) {
         // Trigger pulse
         digitalWrite(PIN_TANK_TRIG, LOW);
         delayMicroseconds(2);
@@ -95,7 +102,7 @@ void tankUpdate() {
                     tankSensorEnabled = false;
                     Serial.println("Tank: CRITICAL - Sensor disabled for 10 minutes.");
                 }
-            } else if (isRecoveryTick) {
+            } else if (tankRecoveryActive) {
                 Serial.println("Tank: Recovery failed. Sensor still unresponsive.");
             }
         } else {
@@ -123,7 +130,7 @@ void tankUpdate() {
     }
 
     // --- DS18B20 Water Temperature Update ---
-    if (ds18b20Enabled || isRecoveryTick)
+    if (ds18b20Enabled || dsRecoveryActive)
     {
         waterSensors.requestTemperatures();
         delay(10);
@@ -139,7 +146,7 @@ void tankUpdate() {
                     ds18b20Enabled = false;
                     Serial.println("Tank: CRITICAL - DS18B20 marked as failed.");
                 }
-            } else if (isRecoveryTick) {
+            } else if (dsRecoveryActive) {
                 Serial.println("Tank: DS18B20 recovery failed.");
             }
         }

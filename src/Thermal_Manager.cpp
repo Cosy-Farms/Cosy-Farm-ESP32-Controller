@@ -49,17 +49,18 @@ void thermalUpdate()
   unsigned long now = millis();
   // Check if it's time to try re-initializing failed sensors
   bool isRecoveryTime = (now - lastRecoveryAttempt >= RECOVERY_INTERVAL_MS);
+  bool dhtRecoveryActive = isRecoveryTime && !dhtEnabled;
 
   if (isRecoveryTime) {
     lastRecoveryAttempt = now;
-    if (!dhtEnabled) {
+    if (dhtRecoveryActive) {
       Serial.println("Thermal: 10-minute recovery attempt for DHT22...");
       dht.begin();
     }
   }
 
   // DHT22 air temp/humidity
-  if (dhtEnabled || isRecoveryTime) 
+  if (dhtEnabled || dhtRecoveryActive) 
   {
     float temp = dht.readTemperature();
     float humid = dht.readHumidity();
@@ -75,7 +76,7 @@ void thermalUpdate()
           dhtEnabled = false;
           Serial.println("Thermal: CRITICAL - DHT sensor marked as failed. Disabling for 10 minutes.");
         }
-      } else if (isRecoveryTime) {
+      } else if (dhtRecoveryActive) {
         Serial.println("Thermal: DHT22 recovery read failed. Sensor still unresponsive.");
       }
     }
