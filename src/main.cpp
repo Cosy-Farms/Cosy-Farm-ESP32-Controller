@@ -136,13 +136,20 @@ void systemInfoTask(void *parameter)
     if (co2Enabled)
     {
       snprintf(line, sizeof(line), "CO2 Level:     %d ppm %s\n", g_co2Ppm, co2WarmedUp ? "" : "(Warming Up)");
-      report += line;
+      report += line; 
+      
       snprintf(line, sizeof(line), "CO2 Int Temp:  %d C (Secondary)\n", g_co2Temp);
+      report += line;
+    }
+    else if (g_co2Temp > 55)
+    {
+      snprintf(line, sizeof(line), "CO2 Level:     OVERHEAT (%d C) - Disabled\n", g_co2Temp);
       report += line;
     }
     else
     {
-      report += "CO2 Level:     Sensor Error (Disabled)\n";
+      snprintf(line, sizeof(line), "CO2 Level:     Sensor Error (Disabled)\n");
+      report += line;
     }
 
     if (tankSensorEnabled)
@@ -257,7 +264,7 @@ void setup()
   xTaskCreate(
       systemInfoTask, // Function to be executed by the task
       "SystemInfo",   // Name of the task
-      4096,           // Stack size in words
+      8192,           // Stack size in bytes
       NULL,           // Parameter to pass to the task
       1,              // Priority of the task
       NULL);          // Task handle

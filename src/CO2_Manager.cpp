@@ -13,6 +13,7 @@ static int co2ConsecutiveFails = 0;
 const int MAX_CO2_FAILS = 5;
 static unsigned long lastCo2Recovery = 0;
 const unsigned long CO2_RECOVERY_INTERVAL = 600000; // 10 minutes
+const int CO2_MAX_SAFE_TEMP = 55; // Safety threshold in Celsius
 
 const int CO2_AVG_SAMPLES = 10;
 int co2_samples[CO2_AVG_SAMPLES];
@@ -55,8 +56,8 @@ void co2Update() {
         int currentCo2 = mhz.getCO2();
         
         // MH-Z19 returns 0 or a value outside expected range on failure
-        // Note: 400 is the baseline for outdoor air.
-        if (currentCo2 < 300 || currentCo2 > 5000) {
+        // Allow 0 readings for the first 30 seconds of boot as the sensor warms up
+        if ((currentCo2 < 300 || currentCo2 > 5000) && !(currentCo2 == 0 && millis() < 30000)) {
             if (co2Enabled) {
                 co2ConsecutiveFails++;
                 Serial.printf("CO2: Sensor read failed (%d/%d)\n", co2ConsecutiveFails, MAX_CO2_FAILS);
@@ -80,6 +81,14 @@ void co2Update() {
             
             // Get internal sensor temperature
             g_co2Temp = mhz.getTemperature();
+
+            // Safety Check: Overheat Protection
+            if (g_co2Temp > CO2_MAX_SAFE_TEMP) {
+                co2Enabled = false;
+                Serial.printf("CO2: CRITICAL - Sensor disabled due to high internal temperature (%d C)\n", g_co2Temp);
+                co2ConsecutiveFails = MAX_CO2_FAILS; // Ensure it stays disabled until recovery interval
+                return;
+            }
 
             // Rolling average logic
             co2_samples[co2_sample_idx] = currentCo2;
