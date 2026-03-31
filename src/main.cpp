@@ -11,6 +11,7 @@
 #include "Thermal_Manager.h"
 #include "Tank_Manager.h"
 #include "ACWater_Manager.h"
+#include "CO2_Manager.h"
 
 #include <Preferences.h>
 #include <LittleFS.h>
@@ -132,6 +133,18 @@ void systemInfoTask(void *parameter)
     }
     report += line;
 
+    if (co2Enabled)
+    {
+      snprintf(line, sizeof(line), "CO2 Level:     %d ppm %s\n", g_co2Ppm, co2WarmedUp ? "" : "(Warming Up)");
+      report += line;
+      snprintf(line, sizeof(line), "CO2 Int Temp:  %d C (Secondary)\n", g_co2Temp);
+      report += line;
+    }
+    else
+    {
+      report += "CO2 Level:     Sensor Error (Disabled)\n";
+    }
+
     if (tankSensorEnabled)
     {
       snprintf(line, sizeof(line), "Water Level:   %.1f %% (%.1f cm)\n", g_waterLevelPct, g_waterDistanceCm);
@@ -248,6 +261,15 @@ void setup()
       NULL,           // Parameter to pass to the task
       1,              // Priority of the task
       NULL);          // Task handle
+
+  co2Init();
+  xTaskCreate(
+      co2Task,
+      "CO2Sensor",
+      4096,
+      NULL,
+      1,
+      NULL);
 
   xTaskCreate(
       acWaterTask,

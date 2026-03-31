@@ -97,4 +97,8 @@ extern bool tankSensorEnabled;
 extern float g_acWaterPumpedToday;
 extern bool g_acPumpRunning;
 
+// CO2 Sensor Pins (MH-Z19E)
+#define PIN_MHZ_RX 10
+#define PIN_MHZ_TX 11
+
 #endif
