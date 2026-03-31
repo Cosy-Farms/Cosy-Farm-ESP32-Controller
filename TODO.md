@@ -1,9 +1,10 @@
-# Command Table in Architecture.md
+# TODO: Update Architecture.md with Current Project State
 
-**Approved: Yes**
+## Steps:
+- [x] Step 1: Create updated full content for architecture.md incorporating CO2_Manager, fixed pins, tasks order, repo URL, OTA URLs, lib_deps, globals, etc.
+- [x] Step 2: Use edit_file or create_file to apply the update.
 
-1. [ ] Step 1: Edit architecture.md to add UART Serial Commands section/table after Software Stack
-2. [ ] Step 2: git add/commit/push 
-3. [ ] Step 3: pio run verify
-4. [x] Step 4: Complete
+- [ ] Step 3: Verify changes.
+- [ ] Step 4: Commit/push (optional, user can do).
 
+Progress tracked here.
