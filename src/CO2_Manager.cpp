@@ -15,7 +15,7 @@ const int MAX_CO2_FAILS = 5;
 static int co2JitterHits = 0;
 static unsigned long lastCo2Recovery = 0;
 const unsigned long CO2_RECOVERY_INTERVAL = 600000; // 10 minutes
-const int CO2_MAX_SAFE_TEMP = 55; // Safety threshold in Celsius
+const int CO2_MAX_SAFE_TEMP = 55;                   // Safety threshold in Celsius
 
 const int CO2_AVG_SAMPLES = 20;
 int co2_samples[CO2_AVG_SAMPLES];
@@ -23,19 +23,20 @@ int co2_sample_idx = 0;
 bool co2_samples_filled = false;
 
 // Adaptive EMA Constants
-#define CO2_SLOW_ALPHA 0.15f  // Very smooth for stable environments
-#define CO2_FAST_ALPHA 0.80f  // Very responsive for large changes
+#define CO2_SLOW_ALPHA 0.15f   // Very smooth for stable environments
+#define CO2_FAST_ALPHA 0.80f   // Very responsive for large changes
 #define CO2_JUMP_THRESHOLD 250 // PPM difference to trigger fast response
 #define CO2_MAX_SLEW_PPM 500   // Max allowable PPM change per 5s sample
 
-void co2Init() {
+void co2Init()
+{
     // MH-Z19E typically operates at 9600 baud
     mhzSerial.begin(9600, SERIAL_8N1, PIN_MHZ_RX, PIN_MHZ_TX);
     mhz.begin(mhzSerial);
-    
+
     // Enable auto-calibration (ABC logic) - usually recommended for 24/7 apps
     mhz.autoCalibration(true);
-    
+
     // Set range to 5000ppm for MH-Z19E model
     mhz.setRange(5000);
 
@@ -43,7 +44,8 @@ void co2Init() {
     Serial.println("CO2 Manager: MH-Z19E Initialized on UART2");
 }
 
-void co2Reset() {
+void co2Reset()
+{
     co2ConsecutiveFails = 0;
     co2Enabled = true;
     co2_samples_filled = false;
@@ -51,57 +53,75 @@ void co2Reset() {
     Serial.println("CO2: Sensor flags reset.");
 }
 
-void co2PerformBurnIn() {
+void co2PerformBurnIn()
+{
     Serial.println("CO2: Initiating automated burn-in/reset sequence...");
     co2WarmedUp = false; // Force re-warmup period
-    mhz.recovery();      // Use library recovery if available or simple reset
     co2JitterHits = 0;
     // We don't call calibrateZero() automatically as it requires 400ppm environment
     // but we can trigger a sensor reset command.
     Serial.println("CO2: Reset complete. Sensor in re-stabilization phase.");
 }
 
-void co2Update() {
+void co2Update()
+{
     unsigned long now = millis();
     bool isRecoveryTick = (now - lastCo2Recovery >= CO2_RECOVERY_INTERVAL);
     bool co2RecoveryActive = isRecoveryTick && !co2Enabled;
 
-    if (isRecoveryTick) {
+    if (isRecoveryTick)
+    {
         lastCo2Recovery = now;
     }
 
-    if (co2Enabled || co2RecoveryActive) {
+    if (co2Enabled || co2RecoveryActive)
+    {
         int currentCo2 = mhz.getCO2();
-        
-        // MH-Z19 returns 0 or a value outside expected range on failure
-        // Allow 0 readings for the first 30 seconds of boot as the sensor warms up
-        if ((currentCo2 < 300 || currentCo2 > 5000) && !(currentCo2 == 0 && millis() < 30000)) {
-            if (co2Enabled) {
+
+        // IMPROVEMENT: Use library error codes to check responsiveness
+        if (mhz.errorCode != 1)
+        { // 1 is often the value for RESULT_OK in this library
+            if (co2Enabled)
+            {
                 co2ConsecutiveFails++;
-                Serial.printf("CO2: Sensor read failed (%d/%d)\n", co2ConsecutiveFails, MAX_CO2_FAILS);
-                if (co2ConsecutiveFails >= MAX_CO2_FAILS) {
+                Serial.printf("CO2: Communication failed! Error code: %d (%d/%d)\n",
+                              mhz.errorCode, co2ConsecutiveFails, MAX_CO2_FAILS);
+                if (co2ConsecutiveFails >= MAX_CO2_FAILS)
+                {
                     co2Enabled = false;
                     Serial.println("CO2: CRITICAL - Sensor disabled for recovery period.");
                 }
             }
-        } else {
+        }
+        else
+        {
+            // Check for valid range if communication was successful
+            if ((currentCo2 < 300 || currentCo2 > 5000) && !(currentCo2 == 0 && millis() < 30000))
+            {
+                // Sensor is responding but providing invalid data
+                return;
+            }
+
             // Success
-            if (!co2Enabled) Serial.println("CO2: Sensor Self-Healed!");
+            if (!co2Enabled)
+                Serial.println("CO2: Sensor Self-Healed!");
             co2Enabled = true;
             co2ConsecutiveFails = 0;
 
             // Check warmup status (Library provides this based on time since boot)
             // Usually ~3 minutes for stability
-            if (!co2WarmedUp && millis() > 180000) {
+            if (!co2WarmedUp && millis() > 180000)
+            {
                 co2WarmedUp = true;
                 Serial.println("CO2: Sensor warm-up complete.");
             }
-            
+
             // Get internal sensor temperature
             g_co2Temp = mhz.getTemperature();
 
             // Safety Check: Overheat Protection
-            if (g_co2Temp > CO2_MAX_SAFE_TEMP) {
+            if (g_co2Temp > CO2_MAX_SAFE_TEMP)
+            {
                 co2Enabled = false;
                 Serial.printf("CO2: CRITICAL - Sensor disabled due to high internal temperature (%d C)\n", g_co2Temp);
                 co2ConsecutiveFails = MAX_CO2_FAILS; // Ensure it stays disabled until recovery interval
@@ -111,9 +131,11 @@ void co2Update() {
             // 1. Slew Rate Limit (Pre-filtering)
             // Prevent impossible jumps from affecting the filters immediately.
             int processedCo2 = currentCo2;
-            if (g_co2Ppm > 0 && co2WarmedUp) {
+            if (g_co2Ppm > 0 && co2WarmedUp)
+            {
                 int delta = currentCo2 - g_co2Ppm;
-                if (abs(delta) > CO2_MAX_SLEW_PPM) {
+                if (abs(delta) > CO2_MAX_SLEW_PPM)
+                {
                     processedCo2 = g_co2Ppm + (delta > 0 ? CO2_MAX_SLEW_PPM : -CO2_MAX_SLEW_PPM);
                     Serial.printf("CO2: Slew limit active. Raw: %d, Clamped to: %d\n", currentCo2, processedCo2);
                 }
@@ -122,52 +144,65 @@ void co2Update() {
             // 2. Update buffer for Jitter/SD Analysis using the slewed value
             co2_samples[co2_sample_idx] = processedCo2;
             co2_sample_idx = (co2_sample_idx + 1) % CO2_AVG_SAMPLES;
-            if (co2_sample_idx == 0) co2_samples_filled = true;
+            if (co2_sample_idx == 0)
+                co2_samples_filled = true;
 
             // 3. Calculate EMA for the reported global value
-            if (g_co2Ppm == 0) {
+            if (g_co2Ppm == 0)
+            {
                 g_co2Ppm = processedCo2; // Seed the filter
-            } else {
+            }
+            else
+            {
                 // Calculate the delta and choose alpha dynamically
                 float diff = abs(processedCo2 - g_co2Ppm);
                 float currentAlpha = (diff > CO2_JUMP_THRESHOLD) ? CO2_FAST_ALPHA : CO2_SLOW_ALPHA;
-                
+
                 g_co2Ppm = (int)((currentAlpha * processedCo2) + ((1.0f - currentAlpha) * g_co2Ppm));
             }
 
             // 4. Calculate Mean and Standard Deviation for Health Check
             long sum = 0;
             int count = co2_samples_filled ? CO2_AVG_SAMPLES : co2_sample_idx;
-            for (int i = 0; i < count; i++) sum += co2_samples[i];
+            for (int i = 0; i < count; i++)
+                sum += co2_samples[i];
             float avg = (float)sum / count;
             float sumSqDiff = 0;
-            for (int i = 0; i < count; i++) {
+            for (int i = 0; i < count; i++)
+            {
                 sumSqDiff += sq((float)co2_samples[i] - avg);
             }
             g_co2StdDev = sqrt(sumSqDiff / count);
 
-            if (count == CO2_AVG_SAMPLES && g_co2StdDev > CO2_SD_THRESHOLD) {
+            if (count == CO2_AVG_SAMPLES && g_co2StdDev > CO2_SD_THRESHOLD)
+            {
                 co2JitterHits++;
                 Serial.printf("CO2: WARNING - High Jitter detected (SD: %.2f PPM, Hits: %d)\n", g_co2StdDev, co2JitterHits);
-                
+
                 // If jitter persists for 12 consecutive samples (1 minute), perform burn-in
-                if (co2JitterHits >= 12) {
+                if (co2JitterHits >= 12)
+                {
                     co2PerformBurnIn();
                 }
-            } else {
-                if (co2JitterHits > 0) co2JitterHits--; // Slow decay of hit counter
+            }
+            else
+            {
+                if (co2JitterHits > 0)
+                    co2JitterHits--; // Slow decay of hit counter
             }
         }
     }
 }
 
-void co2Task(void *parameter) {
+void co2Task(void *parameter)
+{
     Serial.println("CO2 Task: Monitoring CO2 levels every 5s");
     // Initial delay to allow UART stability
     vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    for (;;) {
+
+    for (;;)
+    {
         co2Update();
-        vTaskDelay(pdMS_TO_TICKS(5000)); 
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }

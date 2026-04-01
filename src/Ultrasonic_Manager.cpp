@@ -21,8 +21,9 @@ float getRawDistance() {
     long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms timeout
     if (duration == 0) return -1; // Timeout or no echo
 
-    // Calculate distance in cm (Speed of sound is ~343m/s)
-    return (duration * 0.0343) / 2.0;
+    // Calculate distance using standard 20C speed of sound if no temp available
+    float speedOfSound = 0.0343f; 
+    return (duration * speedOfSound) / 2.0f;
 }
 
 /**

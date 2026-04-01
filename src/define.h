@@ -84,8 +84,11 @@ extern float g_thermalStdDev;
 // Tank Management Settings
 #define PIN_TANK_TRIG 4
 #define PIN_TANK_ECHO 5
-#define TANK_FULL_DIST_CM 10.0f  // Distance from sensor to water when 100% full
-#define TANK_EMPTY_DIST_CM 150.0f // Distance from sensor to bottom when 0% full
+
+// Calibration for a 30cm Tank (Assuming sensor is mounted at the very top lid)
+#define TANK_FULL_DIST_CM 5.0f   // Distance when tank is 100% full (Careful of blind zone!)
+#define TANK_EMPTY_DIST_CM 30.0f // Distance when tank is 0% full
+
 #define TANK_SD_THRESHOLD 2.5f    // Standard Deviation threshold for jitter detection
 #define TANK_MAX_SLEW_CM 10.0f    // Max allowable distance change per 5s sample
 #define TANK_HEALTH_THRESHOLD 70.0f // Trigger alert if health is below this

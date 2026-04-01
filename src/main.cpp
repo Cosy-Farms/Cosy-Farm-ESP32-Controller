@@ -118,29 +118,24 @@ void systemInfoTask(void *parameter)
       snprintf(line, sizeof(line), "Air Temp:      %.1f C, %.1f %% RH (SD: %.2f C)\n", avg_temp_c, avg_humid_pct, g_thermalStdDev);
       report += line;
       if (g_thermalStdDev > DHT_SD_THRESHOLD)
-      {
-        snprintf(line, sizeof(line), "DHT Health:    WARNING (High Jitter)\n");
-      }
+        report += "DHT Health:    WARNING (High Jitter)\n";
       else
-      {
-        snprintf(line, sizeof(line), "DHT Health:    Good\n");
-      }
+        report += "DHT Health:    Good\n";
     }
     else
     {
-      snprintf(line, sizeof(line), "Air Temp:      DHT Error (Disabled)\n");
+      report += "Air Temp:      DHT Error (Disabled)\n";
     }
-    report += line;
 
     if (ds18b20Enabled)
     {
       snprintf(line, sizeof(line), "Water Temp:    %.1f C (DS18B20)\n", water_temp_c);
+      report += line;
     }
     else
     {
-      snprintf(line, sizeof(line), "Water Temp:    DS18B20 Error\n");
+      report += "Water Temp:    DS18B20 Error\n";
     }
-    report += line;
 
     if (co2Enabled)
     {
@@ -191,7 +186,6 @@ void systemInfoTask(void *parameter)
       snprintf(line, sizeof(line), "Water Level:   Sensor Error (Disabled)\n");
       report += line;
     }
-    report += line;
 
     snprintf(line, sizeof(line), "AC Pumped:     %.1f L (Today)\n", g_acWaterPumpedToday);
     report += line;

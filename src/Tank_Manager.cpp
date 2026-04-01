@@ -19,10 +19,6 @@ bool ds18b20Enabled = true;
 static int ds18b20ConsecutiveFails = 0;
 const int MAX_DS18B20_FAILS = 5;
 
-float water_samples[10];
-int water_sample_index = 0;
-bool water_samples_filled = false;
-
 // Buffer for Ultrasonic Jitter Analysis
 #define TANK_AVG_SAMPLES 10
 float tank_samples[TANK_AVG_SAMPLES];
@@ -37,6 +33,7 @@ const unsigned long TANK_RECOVERY_INTERVAL = 600000; // 10 minutes
 // Constants for filtering
 #define TANK_MEDIAN_SAMPLES 5
 #define EMA_ALPHA 0.3f // Smoothing factor (0.0 to 1.0)
+#define WATER_TEMP_EMA_ALPHA 0.2f
 static float filteredDistance = -1.0f;
 static unsigned long healthDropStartTime = 0;
 static unsigned long lastWipeAlertTime = 0;
@@ -50,11 +47,6 @@ void tankInit() {
     Serial.printf("Tank Manager: DS18B20 on GPIO%d, devices: %d\n", PIN_DS18B20, waterSensors.getDeviceCount());
     
     lastTankRecovery = millis();
-
-    for(int i=0; i<10; i++) water_samples[i] = 0.0f;
-    water_sample_index = 0;
-    water_samples_filled = false;
-
     Serial.println("Tank Manager: HC-SR04 Initialized");
 }
 
@@ -63,8 +55,6 @@ void tankReset() {
     ds18b20ConsecutiveFails = 0;
     tankSensorEnabled = true;
     ds18b20Enabled = true;
-    water_samples_filled = false;
-    water_sample_index = 0;
     g_tankHealthPct = 100.0f;
     tank_samples_filled = false;
     tank_sample_idx = 0;
@@ -105,7 +95,11 @@ void tankUpdate() {
             digitalWrite(PIN_TANK_TRIG, LOW);
 
             long duration = pulseIn(PIN_TANK_ECHO, HIGH, 30000);
-            float d = (duration > 0) ? (duration * 0.0343f) / 2.0f : -1.0f;
+            
+            // Speed of sound correction: v = 331.3 + 0.606 * Temp (m/s)
+            // Result converted to cm/us: (331.3 + 0.606 * avg_temp_c) / 10000.0
+            float speedOfSound = (avg_temp_c > 0) ? (331.3f + (0.606f * avg_temp_c)) / 10000.0f : 0.0343f;
+            float d = (duration > 0) ? (duration * speedOfSound) / 2.0f : -1.0f;
             
             if (d > 0 && d < 400.0f) validReadings.push_back(d);
             delay(15); // Short delay to let previous echoes dissipate
@@ -204,7 +198,6 @@ void tankUpdate() {
     if (ds18b20Enabled || dsRecoveryActive)
     {
         waterSensors.requestTemperatures();
-        delay(10);
         float wtemp = waterSensors.getTempCByIndex(0);
 
         if (isnan(wtemp) || wtemp == DEVICE_DISCONNECTED_C)
@@ -226,19 +219,13 @@ void tankUpdate() {
             if (!ds18b20Enabled) Serial.println("Tank: DS18B20 Self-Healed!");
             ds18b20ConsecutiveFails = 0;
             ds18b20Enabled = true;
-
-            water_samples[water_sample_index] = wtemp;
-            water_sample_index = (water_sample_index + 1) % 10;
-            if (water_sample_index == 0)
-                water_samples_filled = true;
-
-            float sum_water = 0.0f;
-            int wcount = water_samples_filled ? 10 : water_sample_index;
-            for (int i = 0; i < wcount; i++)
-            {
-                sum_water += water_samples[i];
+            
+            // --- EMA Filtering for Water Temp Stability ---
+            if (water_temp_c <= 0.0f) {
+                water_temp_c = wtemp; // Initial seed
+            } else {
+                water_temp_c = (WATER_TEMP_EMA_ALPHA * wtemp) + ((1.0f - WATER_TEMP_EMA_ALPHA) * water_temp_c);
             }
-            water_temp_c = sum_water / wcount;
         }
     }
 }
