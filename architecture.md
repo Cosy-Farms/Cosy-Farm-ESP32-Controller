@@ -38,7 +38,7 @@ Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller
 | Manager | Purpose | Update Freq | Stack Size | Globals/Key Logic |
 |---------|---------|-------------|------------|-------------------|
 | **Thermal_Manager** | DHT22 air T/RH (avg5) | 2s | 16kB | avg_temp_c, avg_humid_pct, dhtEnabled (fail≥5→10min recovery). |
-| **Tank_Manager** | HC-SR04 level avg10/DS18B20 T avg10 | 5s | 4kB | g_waterLevelPct (10-150cm→0-100%), g_waterDistanceCm, water_temp_c, tankSensorEnabled/ds18b20Enabled. |
+| **Tank_Manager** | Ultrasonic_Manager HC-SR04 median avg10 + DS18B20 T avg10 | 5s | 4kB | g_waterLevelPct (deadzone handling), g_waterDistanceCm, water_temp_c, tankSensorEnabled/ds18b20Enabled. |
 | **CO2_Manager (NEW)** | MH-Z19E ppm avg10 / int T | 5s | 4kB | g_co2Ppm, g_co2Temp, co2Enabled (fail≥5→10min), co2WarmedUp (3min). |
 | **ACWater_Manager** | Float→pump FSM | 200ms | 2kB | g_acWaterPumpedToday (daily reset), g_acPumpRunning. States: IDLE/PUMPING/COOLDOWN/FAULT. |
 | **WiFi_Manager** | STA (NVS/\"COSYFARM\") monitor+rollback | Async/100ms | 8kB | wifiConnected; AP SSID=g_deviceId. |
@@ -46,6 +46,7 @@ Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller
 | **wifiMonitorTask** | Events+NTP/OTA/LED | 100ms | 8kB | Reconnect, ntpAttempt/otaCheckAfterNtp, ledBlink(state). |
 
 **Other Modules** (non-task/init-only):
+- **Ultrasonic_Manager**: HC-SR04 raw/filtered (median) distance, tank % calc (30cm height, 20cm deadzone).
 - **NTP_Manager**: GeoIP/tz JSON sync on connect, g_lat/lon/g_epochTime/g_localTime/g_timezone (rtcUpdate daily).
 - **Command_Manager**: Serial CLI (W/w/C/c/S/s/F/f/T/t).
 - **LED_Manager**: PWM RGB blink patterns per state (e.g. solid green=CONNECTED).
