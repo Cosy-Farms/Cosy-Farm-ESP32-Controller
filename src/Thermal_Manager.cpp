@@ -5,19 +5,23 @@ DHT dht(PIN_DHT22, DHT22);
 
 float avg_temp_c = 0.0f;
 float avg_humid_pct = 0.0f;
+float g_thermalStdDev = 0.0f;
 bool dhtEnabled = true;     // Tracks sensor health
 
 static int dhtConsecutiveFails = 0;
 const int MAX_DHT_FAILS = 5; // Disable after 10 seconds of failure (5 samples * 2s)
 
+// Buffer for Jitter Analysis
+#define DHT_SD_SAMPLES 10
+static float dht_temp_samples[DHT_SD_SAMPLES];
+static int dht_sd_idx = 0;
+static bool dht_sd_filled = false;
+
 static unsigned long lastRecoveryAttempt = 0;
 const unsigned long RECOVERY_INTERVAL_MS = 600000; // 10 minutes (600,000 ms)
 
-const int AVG_SAMPLES = 5; // 10s at 0.5Hz
-float temp_samples[AVG_SAMPLES];
-float humid_samples[AVG_SAMPLES];
-int dht_sample_index = 0;
-bool dht_samples_filled = false;
+// EMA Filter Constants
+#define THERMAL_EMA_ALPHA 0.2f 
 
 void thermalInit()
 {
@@ -25,23 +29,15 @@ void thermalInit()
   Serial.printf("Thermal Manager: DHT22 on GPIO%d initialized\n", PIN_DHT22);
 
   lastRecoveryAttempt = millis();
-  // Init samples to 0
-  for (int i = 0; i < AVG_SAMPLES; i++)
-  {
-    temp_samples[i] = 0.0f;
-    humid_samples[i] = 0.0f;
-  }
-  dht_sample_index = 0;
-  dht_samples_filled = false;
 }
 
 void thermalReset()
 {
   dhtConsecutiveFails = 0;
-  dht_samples_filled = false;
-  dht_sample_index = 0;
+  dht_sd_filled = false;
+  dht_sd_idx = 0;
   dhtEnabled = true;
-  Serial.println("Thermal: Sensor flags reset. Attempting to resume monitoring...");
+  Serial.println("Thermal: Flags reset.");
 }
 
 void thermalUpdate()
@@ -86,25 +82,33 @@ void thermalUpdate()
       if (!dhtEnabled) Serial.println("Thermal: DHT22 Self-Healed!");
       dhtConsecutiveFails = 0;
       dhtEnabled = true;
+      
+      // --- Jitter Analysis (Standard Deviation) ---
+      dht_temp_samples[dht_sd_idx] = temp;
+      dht_sd_idx = (dht_sd_idx + 1) % DHT_SD_SAMPLES;
+      if (dht_sd_idx == 0) dht_sd_filled = true;
 
-      temp_samples[dht_sample_index] = temp;
-      humid_samples[dht_sample_index] = humid;
-      dht_sample_index = (dht_sample_index + 1) % AVG_SAMPLES;
-      if (dht_sample_index == 0)
-        dht_samples_filled = true;
+      int sd_count = dht_sd_filled ? DHT_SD_SAMPLES : dht_sd_idx;
+      float sd_sum = 0;
+      for (int i = 0; i < sd_count; i++) sd_sum += dht_temp_samples[i];
+      float sd_mean = sd_sum / sd_count;
 
-      float sum_temp = 0.0f;
-      float sum_humid = 0.0f;
-      int dht_count = dht_samples_filled ? AVG_SAMPLES : dht_sample_index;
+      float sumSqDiff = 0;
+      for (int i = 0; i < sd_count; i++) sumSqDiff += sq(dht_temp_samples[i] - sd_mean);
+      g_thermalStdDev = sqrt(sumSqDiff / sd_count);
 
-      for (int i = 0; i < dht_count; i++)
-      {
-        sum_temp += temp_samples[i];
-        sum_humid += humid_samples[i];
+      if (sd_count == DHT_SD_SAMPLES && g_thermalStdDev > DHT_SD_THRESHOLD) {
+          Serial.printf("Thermal: WARNING - DHT22 Jitter detected (SD: %.2f C)\n", g_thermalStdDev);
       }
 
-      avg_temp_c = sum_temp / dht_count;
-      avg_humid_pct = sum_humid / dht_count;
+      // --- IMPROVEMENT: EMA Filtering for high precision stability ---
+      if (avg_temp_c == 0.0f) {
+          avg_temp_c = temp;
+          avg_humid_pct = humid;
+      } else {
+          avg_temp_c = (THERMAL_EMA_ALPHA * temp) + ((1.0f - THERMAL_EMA_ALPHA) * avg_temp_c);
+          avg_humid_pct = (THERMAL_EMA_ALPHA * humid) + ((1.0f - THERMAL_EMA_ALPHA) * avg_humid_pct);
+      }
     }
   }
 }

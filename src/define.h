@@ -78,16 +78,23 @@ extern String g_deviceId;
 
 extern float avg_temp_c;
 extern float avg_humid_pct;
+extern float g_thermalStdDev;
+#define DHT_SD_THRESHOLD 1.0f    // Jitter threshold for DHT instability
 
 // Tank Management Settings
 #define PIN_TANK_TRIG 4
 #define PIN_TANK_ECHO 5
 #define TANK_FULL_DIST_CM 10.0f  // Distance from sensor to water when 100% full
 #define TANK_EMPTY_DIST_CM 150.0f // Distance from sensor to bottom when 0% full
+#define TANK_SD_THRESHOLD 2.5f    // Standard Deviation threshold for jitter detection
+#define TANK_MAX_SLEW_CM 10.0f    // Max allowable distance change per 5s sample
+#define TANK_HEALTH_THRESHOLD 70.0f // Trigger alert if health is below this
+#define TANK_HEALTH_WIPE_MS 3600000UL // Duration required to trigger alert (1 hour)
 
 extern float g_waterLevelPct;
 extern float g_waterDistanceCm;
 extern bool tankSensorEnabled;
+extern float g_tankHealthPct;
 
 // AC Condensate Management
 #define PIN_AC_FLOAT 8
@@ -100,5 +107,8 @@ extern bool g_acPumpRunning;
 // CO2 Sensor Pins (MH-Z19E)
 #define PIN_MHZ_RX 10
 #define PIN_MHZ_TX 11
+#define CO2_SD_THRESHOLD 20.0f    // PPM jitter threshold
+extern float g_co2StdDev;
+extern int g_co2Ppm;
 
 #endif

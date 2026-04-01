@@ -3,6 +3,7 @@
 
 int g_co2Ppm = 0;
 int g_co2Temp = 0;
+float g_co2StdDev = 0.0f;
 bool co2Enabled = true;
 bool co2WarmedUp = false;
 
@@ -11,14 +12,21 @@ static HardwareSerial mhzSerial(2); // Use UART2
 
 static int co2ConsecutiveFails = 0;
 const int MAX_CO2_FAILS = 5;
+static int co2JitterHits = 0;
 static unsigned long lastCo2Recovery = 0;
 const unsigned long CO2_RECOVERY_INTERVAL = 600000; // 10 minutes
 const int CO2_MAX_SAFE_TEMP = 55; // Safety threshold in Celsius
 
-const int CO2_AVG_SAMPLES = 10;
+const int CO2_AVG_SAMPLES = 20;
 int co2_samples[CO2_AVG_SAMPLES];
 int co2_sample_idx = 0;
 bool co2_samples_filled = false;
+
+// Adaptive EMA Constants
+#define CO2_SLOW_ALPHA 0.15f  // Very smooth for stable environments
+#define CO2_FAST_ALPHA 0.80f  // Very responsive for large changes
+#define CO2_JUMP_THRESHOLD 250 // PPM difference to trigger fast response
+#define CO2_MAX_SLEW_PPM 500   // Max allowable PPM change per 5s sample
 
 void co2Init() {
     // MH-Z19E typically operates at 9600 baud
@@ -41,6 +49,16 @@ void co2Reset() {
     co2_samples_filled = false;
     co2_sample_idx = 0;
     Serial.println("CO2: Sensor flags reset.");
+}
+
+void co2PerformBurnIn() {
+    Serial.println("CO2: Initiating automated burn-in/reset sequence...");
+    co2WarmedUp = false; // Force re-warmup period
+    mhz.recovery();      // Use library recovery if available or simple reset
+    co2JitterHits = 0;
+    // We don't call calibrateZero() automatically as it requires 400ppm environment
+    // but we can trigger a sensor reset command.
+    Serial.println("CO2: Reset complete. Sensor in re-stabilization phase.");
 }
 
 void co2Update() {
@@ -90,16 +108,55 @@ void co2Update() {
                 return;
             }
 
-            // Rolling average logic
-            co2_samples[co2_sample_idx] = currentCo2;
+            // 1. Slew Rate Limit (Pre-filtering)
+            // Prevent impossible jumps from affecting the filters immediately.
+            int processedCo2 = currentCo2;
+            if (g_co2Ppm > 0 && co2WarmedUp) {
+                int delta = currentCo2 - g_co2Ppm;
+                if (abs(delta) > CO2_MAX_SLEW_PPM) {
+                    processedCo2 = g_co2Ppm + (delta > 0 ? CO2_MAX_SLEW_PPM : -CO2_MAX_SLEW_PPM);
+                    Serial.printf("CO2: Slew limit active. Raw: %d, Clamped to: %d\n", currentCo2, processedCo2);
+                }
+            }
+
+            // 2. Update buffer for Jitter/SD Analysis using the slewed value
+            co2_samples[co2_sample_idx] = processedCo2;
             co2_sample_idx = (co2_sample_idx + 1) % CO2_AVG_SAMPLES;
             if (co2_sample_idx == 0) co2_samples_filled = true;
 
+            // 3. Calculate EMA for the reported global value
+            if (g_co2Ppm == 0) {
+                g_co2Ppm = processedCo2; // Seed the filter
+            } else {
+                // Calculate the delta and choose alpha dynamically
+                float diff = abs(processedCo2 - g_co2Ppm);
+                float currentAlpha = (diff > CO2_JUMP_THRESHOLD) ? CO2_FAST_ALPHA : CO2_SLOW_ALPHA;
+                
+                g_co2Ppm = (int)((currentAlpha * processedCo2) + ((1.0f - currentAlpha) * g_co2Ppm));
+            }
+
+            // 4. Calculate Mean and Standard Deviation for Health Check
             long sum = 0;
             int count = co2_samples_filled ? CO2_AVG_SAMPLES : co2_sample_idx;
             for (int i = 0; i < count; i++) sum += co2_samples[i];
-            
-            g_co2Ppm = (int)(sum / count);
+            float avg = (float)sum / count;
+            float sumSqDiff = 0;
+            for (int i = 0; i < count; i++) {
+                sumSqDiff += sq((float)co2_samples[i] - avg);
+            }
+            g_co2StdDev = sqrt(sumSqDiff / count);
+
+            if (count == CO2_AVG_SAMPLES && g_co2StdDev > CO2_SD_THRESHOLD) {
+                co2JitterHits++;
+                Serial.printf("CO2: WARNING - High Jitter detected (SD: %.2f PPM, Hits: %d)\n", g_co2StdDev, co2JitterHits);
+                
+                // If jitter persists for 12 consecutive samples (1 minute), perform burn-in
+                if (co2JitterHits >= 12) {
+                    co2PerformBurnIn();
+                }
+            } else {
+                if (co2JitterHits > 0) co2JitterHits--; // Slow decay of hit counter
+            }
         }
     }
 }

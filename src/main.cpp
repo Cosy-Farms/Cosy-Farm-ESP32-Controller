@@ -115,7 +115,16 @@ void systemInfoTask(void *parameter)
     // Add Thermal Monitoring Data
     if (dhtEnabled)
     {
-      snprintf(line, sizeof(line), "Air Temp:      %.1f C, %.1f %% RH\n", avg_temp_c, avg_humid_pct);
+      snprintf(line, sizeof(line), "Air Temp:      %.1f C, %.1f %% RH (SD: %.2f C)\n", avg_temp_c, avg_humid_pct, g_thermalStdDev);
+      report += line;
+      if (g_thermalStdDev > DHT_SD_THRESHOLD)
+      {
+        snprintf(line, sizeof(line), "DHT Health:    WARNING (High Jitter)\n");
+      }
+      else
+      {
+        snprintf(line, sizeof(line), "DHT Health:    Good\n");
+      }
     }
     else
     {
@@ -135,9 +144,17 @@ void systemInfoTask(void *parameter)
 
     if (co2Enabled)
     {
-      snprintf(line, sizeof(line), "CO2 Level:     %d ppm %s\n", g_co2Ppm, co2WarmedUp ? "" : "(Warming Up)");
-      report += line; 
-      
+      snprintf(line, sizeof(line), "CO2 Level:     %d ppm %s (SD: %.1f)\n", g_co2Ppm, co2WarmedUp ? "" : "(Warming Up)", g_co2StdDev);
+      report += line;
+      if (g_co2StdDev > CO2_SD_THRESHOLD)
+      {
+        report += "CO2 Health:    WARNING (High Jitter)\n";
+      }
+      else
+      {
+        report += "CO2 Health:    Good\n";
+      }
+
       snprintf(line, sizeof(line), "CO2 Int Temp:  %d C (Secondary)\n", g_co2Temp);
       report += line;
     }
@@ -154,11 +171,25 @@ void systemInfoTask(void *parameter)
 
     if (tankSensorEnabled)
     {
-      snprintf(line, sizeof(line), "Water Level:   %.1f %% (%.1f cm)\n", g_waterLevelPct, g_waterDistanceCm);
+      snprintf(line, sizeof(line), "Water Level:   %.1f %% (%.1f cm, SD: %.2f cm)\n", g_waterLevelPct, g_waterDistanceCm, g_tankStdDev);
+      report += line;
+
+      // Determine status string based on both Jitter (Precision) and Signal Quality (Health)
+      const char *healthStatus = "Good";
+      if (g_tankHealthPct < 60.0f)
+        healthStatus = "Poor Signal";
+      else if (g_tankHealthPct < 90.0f)
+        healthStatus = "Degraded";
+      else if (g_tankStdDev > TANK_SD_THRESHOLD)
+        healthStatus = "Jittery";
+
+      snprintf(line, sizeof(line), "Sensor Health: %.0f %% (%s)\n", g_tankHealthPct, healthStatus);
+      report += line;
     }
     else
     {
       snprintf(line, sizeof(line), "Water Level:   Sensor Error (Disabled)\n");
+      report += line;
     }
     report += line;
 
