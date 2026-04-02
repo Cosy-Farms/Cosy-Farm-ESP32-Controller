@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <time.h>
-#include <ArduinoJson.h>
 #include "RTC_Manager.h"
 
 // These definitions allocate memory for the globals. 
@@ -26,9 +25,9 @@ void saveGeoCache(long offset) {
     prefs.putString("tz_name", g_timezone);
     prefs.putLong("offset", offset);
     prefs.end();
-    Serial.println("Geo-coordinates saved to Preferences.");
+    Serial.println(F("Geo-coordinates saved to Preferences."));
   } else {
-    Serial.println("Failed to open Preferences for saving.");
+    Serial.println(F("Failed to open Preferences for saving."));
   }
 }
 
@@ -58,18 +57,18 @@ bool loadGeoCache() {
       return true;
     }
   }
-  Serial.println("No valid Geo Cache found.");
+  Serial.println(F("No valid Geo Cache found."));
   return false;
 }
 
 // Initializes NTP synchronization.
 // Attempts to load cached geo-location and timezone data to provide an initial time context.
 void ntpInit() {
-  Serial.println("NTP init");
+  Serial.println(F("NTP init"));
   // Attempt to load cached data to set up a timezone as early as possible,
   // even before a fresh API sync.
   if (loadGeoCache()) {
-    Serial.println("Initial time sync configured from cache.");
+    Serial.println(F("Initial time sync configured from cache."));
   }
 }
 
@@ -77,7 +76,7 @@ void ntpInit() {
 // This function is typically called upon a fresh WiFi connection or when a daily update is desired.
 // It fetches geo-location and timezone information from an external API and then synchronizes time.
 void ntpUpdateOnConnect() {
-  Serial.println("NTP/Geo update on connect");
+  Serial.println(F("NTP/Geo update on connect"));
   
   // Fetch Geo + TZ
   HTTPClient http;
@@ -86,32 +85,34 @@ void ntpUpdateOnConnect() {
   int code = http.GET();
   
   if (code == HTTP_CODE_OK) {
-    JsonDocument doc;
-    
-    // Parse directly from the response stream to save memory
-    WiFiClient* stream = http.getStreamPtr();
-    DeserializationError error = deserializeJson(doc, *stream);
+    String payload = http.getString();
     http.end();
 
-    if (error) {
-      Serial.print(F("deserializeJson() failed: "));
-      Serial.println(error.f_str());
+    if (payload.indexOf("\"success\"") == -1) {
+      Serial.println(F("API Status not success"));
       return;
     }
     
-    // Check if the API returned a success status
-    if (doc["status"] != "success") {
-      Serial.println("API Status not success");
-      return;
-    }
-    
-    // Extract values safely
-    // ArduinoJson handles the conversion from numbers to Strings for g_lat/g_lon
-    g_lat = doc["lat"].as<String>();
-    g_lon = doc["lon"].as<String>();
-    g_timezone = doc["timezone"].as<String>();
-    long offset = doc["offset"]; // Offset in seconds from UTC.
-    
+    // Helper function to extract JSON values manually to save flash
+    auto extract = [&](String key) -> String {
+      int keyIdx = payload.indexOf("\"" + key + "\":");
+      if (keyIdx == -1) return "";
+      int start = keyIdx + key.length() + 3;
+      if (payload[start] == '"') start++;
+      int end = payload.indexOf(',', start);
+      if (end == -1) end = payload.indexOf('}', start);
+      String val = payload.substring(start, end);
+      val.replace("\"", "");
+      val.trim();
+      return val;
+    };
+
+    g_lat = extract("lat");
+    g_lon = extract("lon");
+    g_timezone = extract("timezone");
+    String offsetStr = extract("offset");
+    long offset = offsetStr.length() > 0 ? offsetStr.toInt() : 0;
+
     // Set TZ with offset (seconds). 
     // Note: POSIX TZ strings use negative values for East (e.g., UTC-5:30 for GMT+5:30).
     char tzbuf[64];

@@ -25,8 +25,7 @@ const unsigned long RECOVERY_INTERVAL_MS = 600000; // 10 minutes (600,000 ms)
 
 void thermalInit()
 {
-  dht.begin();
-  Serial.printf("Thermal Manager: DHT22 on GPIO%d initialized\n", PIN_DHT22);
+  Serial.printf("Thermal Manager: DHTNew on GPIO%d initialized\n", PIN_DHT22);
 
   lastRecoveryAttempt = millis();
 }
@@ -51,13 +50,13 @@ void thermalUpdate()
     lastRecoveryAttempt = now;
     if (dhtRecoveryActive) {
       Serial.println("Thermal: 10-minute recovery attempt for DHT22...");
-      dht.begin();
     }
   }
 
   // DHT22 air temp/humidity
   if (dhtEnabled || dhtRecoveryActive) 
   {
+    dht.read();
     float temp = dht.readTemperature();
     float humid = dht.readHumidity();
 

@@ -2,6 +2,8 @@
 #define DEFINE_H
 
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h> // Required for QueueHandle_t
 #include <WiFi.h>
 #include <Preferences.h>
 // No need <String.h>, Arduino.h covers
@@ -21,7 +23,9 @@ extern String g_localTime;
 extern String g_timezone;
 
 // Current operational state of the device.
-extern int currentState; 
+// Replaced by a queue for inter-task communication and a global for current status.
+extern QueueHandle_t stateQueue;
+extern volatile int g_currentSystemState;
 
 // Define various states for the device's operation.
 #define STATE_NTP_SYNC 0

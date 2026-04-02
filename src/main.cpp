@@ -20,7 +20,8 @@
 
 // Global definitions (define.h extern impl)
 Preferences prefs;
-int currentState = 0;
+QueueHandle_t stateQueue; // FreeRTOS queue for state changes
+volatile int g_currentSystemState = 0; // Global variable for current system state (updated by LED task)
 int ntpRetryCount = 0;
 bool wifiConnected = false;
 String g_deviceId = "";
@@ -82,7 +83,7 @@ void systemInfoTask(void *parameter)
   const unsigned long FLASH_WRITE_INTERVAL = 600000; // 10 minutes
 
   // Wait for the system to reach a stable connected state
-  while (currentState != STATE_CONNECTED)
+  while (g_currentSystemState != STATE_CONNECTED)
   {
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
@@ -198,20 +199,20 @@ void systemInfoTask(void *parameter)
     }
 
     snprintf(line, sizeof(line), "Free Heap:     %u KB\nFree PSRAM:    %u KB\nState:         %d\nOTA In Prog:   %s\n",
-             ESP.getFreeHeap() / 1024, ESP.getFreePsram() / 1024, currentState, isOtaInProgress() ? "Yes" : "No");
+             ESP.getFreeHeap() / 1024, ESP.getFreePsram() / 1024, g_currentSystemState, isOtaInProgress() ? "Yes" : "No");
     report += line;
     report += "----------------------------\n";
 
     Serial.print(report);
 
-    bool criticalChange = (currentState != lastLoggedState);
+    bool criticalChange = (g_currentSystemState != lastLoggedState);
     bool intervalReached = (millis() - lastFlashWrite >= FLASH_WRITE_INTERVAL);
-
+    
     logStatusToFile(report.c_str(), criticalChange || intervalReached);
 
     if (criticalChange || intervalReached)
       lastFlashWrite = millis();
-    lastLoggedState = currentState;
+    lastLoggedState = g_currentSystemState;
 
     vTaskDelay(pdMS_TO_TICKS(60000));
   }
@@ -275,6 +276,9 @@ void setup()
   Serial.println("---------------------------\n");
 
   ledInit();
+
+  // Create the state queue
+  stateQueue = xQueueCreate(5, sizeof(int)); // Queue can hold 5 integer state messages
   wifiInit();
 
   xTaskCreate(

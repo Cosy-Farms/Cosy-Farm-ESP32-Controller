@@ -7,7 +7,6 @@ float g_co2StdDev = 0.0f;
 bool co2Enabled = true;
 bool co2WarmedUp = false;
 
-static MHZ19 mhz;
 static HardwareSerial mhzSerial(2); // Use UART2
 
 static int co2ConsecutiveFails = 0;
@@ -30,16 +29,7 @@ bool co2_samples_filled = false;
 
 void co2Init()
 {
-    // MH-Z19E typically operates at 9600 baud
     mhzSerial.begin(9600, SERIAL_8N1, PIN_MHZ_RX, PIN_MHZ_TX);
-    mhz.begin(mhzSerial);
-
-    // Enable auto-calibration (ABC logic) - usually recommended for 24/7 apps
-    mhz.autoCalibration(true);
-
-    // Set range to 5000ppm for MH-Z19E model
-    mhz.setRange(5000);
-
     lastCo2Recovery = millis();
     Serial.println("CO2 Manager: MH-Z19E Initialized on UART2");
 }
@@ -76,16 +66,25 @@ void co2Update()
 
     if (co2Enabled || co2RecoveryActive)
     {
-        int currentCo2 = mhz.getCO2();
+        // Raw command to read CO2: {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79}
+        byte cmd[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
+        mhzSerial.write(cmd, 9);
+        
+        byte response[9];
+        memset(response, 0, 9);
+        int bytesRead = mhzSerial.readBytes(response, 9);
 
-        // IMPROVEMENT: Use library error codes to check responsiveness
-        if (mhz.errorCode != 1)
-        { // 1 is often the value for RESULT_OK in this library
+        // Checksum validation
+        byte check = 0;
+        for (int i = 1; i < 8; i++) check += response[i];
+        check = 0xFF - check + 0x01;
+
+        if (bytesRead != 9 || response[0] != 0xFF || response[1] != 0x86 || response[8] != check)
+        {
             if (co2Enabled)
             {
                 co2ConsecutiveFails++;
-                Serial.printf("CO2: Communication failed! Error code: %d (%d/%d)\n",
-                              mhz.errorCode, co2ConsecutiveFails, MAX_CO2_FAILS);
+                Serial.printf("CO2: Communication failed! (%d/%d)\n", co2ConsecutiveFails, MAX_CO2_FAILS);
                 if (co2ConsecutiveFails >= MAX_CO2_FAILS)
                 {
                     co2Enabled = false;
@@ -95,6 +94,9 @@ void co2Update()
         }
         else
         {
+            int currentCo2 = (int)response[2] * 256 + (int)response[3];
+            g_co2Temp = (int)response[4] - 40;
+
             // Check for valid range if communication was successful
             if ((currentCo2 < 300 || currentCo2 > 5000) && !(currentCo2 == 0 && millis() < 30000))
             {
@@ -115,9 +117,6 @@ void co2Update()
                 co2WarmedUp = true;
                 Serial.println("CO2: Sensor warm-up complete.");
             }
-
-            // Get internal sensor temperature
-            g_co2Temp = mhz.getTemperature();
 
             // Safety Check: Overheat Protection
             if (g_co2Temp > CO2_MAX_SAFE_TEMP)

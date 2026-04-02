@@ -4,6 +4,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <Update.h>
+#include <freertos/queue.h> // Required for xQueueSend
 #include "NTP_Manager.h"
 #include "OTA_Manager.h"
 
@@ -25,12 +26,14 @@ static bool g_syncTriggered = false;
 bool ntpAttempt()
 {
   // Set current state to NTP synchronization.
-  currentState = STATE_NTP_SYNC;
+  int newState = STATE_NTP_SYNC;
+  xQueueSend(stateQueue, &newState, 0);
   // Call the NTP update function which also fetches geo-location.
   ntpUpdateOnConnect();
   if (g_epochTime > 0 && g_lat.length() > 0)
   {
-    currentState = STATE_CONNECTED;
+    int nextState = STATE_CONNECTED;
+    xQueueSend(stateQueue, &nextState, 0);
     ntpRetryCount = 0;
     return true;
   }
@@ -57,10 +60,12 @@ void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
   // If this boot was a trial for new firmware, mark it as successful.
   if (isPendingVerify) {
     isPendingVerify = false;
-    prefs.begin("ota", false);
+    // Use a temporary Preferences object to avoid conflicts if prefs is used elsewhere
+    Preferences tempPrefs; 
+    tempPrefs.begin("ota", false);
     prefs.putBool("pending-verify", false);
     prefs.end();
-    Serial.println("Rollback Protection: WiFi verified! Success flag cleared.");
+    Serial.println(F("Rollback Protection: WiFi verified! Success flag cleared."));
   }
 
   // Signal the wifiMonitorTask to perform NTP/OTA sync
@@ -71,13 +76,15 @@ void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
 // This event is triggered when the ESP32 loses its connection to the WiFi access point.
 void WiFiEventDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
   wifiConnected = false;
-  currentState = STATE_ERROR; // Set state to error on disconnection.
+  int newState = STATE_ERROR;
+  xQueueSend(stateQueue, &newState, 0); // Set state to error on disconnection.
   // In ESP32 Core 3.0+, 'disconnected' was renamed to 'wifi_sta_disconnected'
   Serial.printf("WiFi disconnected from AP, reason: %d. Retrying...\n", info.wifi_sta_disconnected.reason);
   
   // Attempt to reconnect using the stored global credentials.
   WiFi.begin(g_ssid.c_str(), g_password.c_str());
-  currentState = STATE_CONNECTING; // Set state to connecting while attempting to reconnect.
+  newState = STATE_CONNECTING;
+  xQueueSend(stateQueue, &newState, 0); // Set state to connecting while attempting to reconnect.
 }
 
 // Initializes WiFi connection.
@@ -103,7 +110,7 @@ void wifiInit()
     // Diagnostic: Warn if saved SSID differs from the current hardcoded default
     if (g_ssid != DEFAULT_SSID) {
       Serial.printf("INFO: Saved SSID differs from DEFAULT_SSID ('%s').\n", DEFAULT_SSID);
-      Serial.println("      To use the new default, send 'W' over Serial to wipe NVS.");
+      Serial.println(F("      To use the new default, send 'W' over Serial to wipe NVS."));
     }
   }
   prefs.end();
@@ -122,7 +129,8 @@ void wifiInit()
 
   Serial.printf("Attempting to connect to '%s'...\n", g_ssid.c_str());
   WiFi.begin(g_ssid.c_str(), g_password.c_str());
-  currentState = STATE_CONNECTING; // Set initial state to connecting.
+  int newState = STATE_CONNECTING;
+  xQueueSend(stateQueue, &newState, 0); // Set initial state to connecting.
 }
 
 // FreeRTOS task to continuously monitor WiFi connection status.
@@ -130,28 +138,26 @@ void wifiInit()
 // Also updates the LED status based on the current state.
 void wifiMonitorTask(void *parameter)
 {
-  Serial.println("WiFi Monitor Task started");
+  Serial.println(F("WiFi Monitor Task started"));
 
   for (;;)
   {
-    unsigned long now = millis(); // Get current time.
-
   // Safe mode removed - normal operation
 
     
-    // Update LED based on the current state.
-    ledBlink(currentState, now);
+    // LED update removed from here (handled by dedicated LED_Task)
     
     // Perform NTP and OTA check when triggered (and WiFi is still connected)
     if (g_syncTriggered && wifiConnected) {
       g_syncTriggered = false;
-      Serial.println("WiFi Monitor: Starting post-connection sync (NTP/OTA)...");
+      Serial.println(F("WiFi Monitor: Starting post-connection sync (NTP/OTA)..."));
       
       if (!ntpAttempt()) {
         ntpRetryCount++;
         if (ntpRetryCount >= 3) {
-          Serial.println("NTP failed after 3 tries, skip");
-          currentState = STATE_CONNECTED;
+          Serial.println(F("NTP failed after 3 tries, setting state to CONNECTED"));
+          int newState = STATE_CONNECTED;
+          xQueueSend(stateQueue, &newState, 0);
         }
       }
       
@@ -159,8 +165,8 @@ void wifiMonitorTask(void *parameter)
     }
 
     // Rollback Logic: If WiFi fails to connect within the timeout after an update.
-    if (isPendingVerify && (now - rollbackTimer > ROLLBACK_TIMEOUT_MS)) {
-      Serial.println("Rollback Protection: Connection timeout! Reverting to previous firmware...");
+    if (isPendingVerify && (millis() - rollbackTimer > ROLLBACK_TIMEOUT_MS)) {
+      Serial.println(F("Rollback Protection: Connection timeout! Reverting to previous firmware..."));
       
       prefs.begin("ota", false);
       prefs.putBool("pending-verify", false);
@@ -171,7 +177,7 @@ void wifiMonitorTask(void *parameter)
       if (Update.rollBack()) {
         ESP.restart();
       } else {
-        Serial.println("Rollback Protection: ERROR - Rollback failed (no previous image?)");
+        Serial.println(F("Rollback Protection: ERROR - Rollback failed (no previous image?)"));
         isPendingVerify = false; // Stop trying to rollback if it's impossible.
       }
     }

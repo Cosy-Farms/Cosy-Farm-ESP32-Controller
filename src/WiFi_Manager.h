@@ -4,11 +4,7 @@
 #include "define.h"
 #include "LED_Manager.h"
 
-
-extern int currentState;
-
 void wifiInit();
 void wifiMonitorTask(void *parameter);
 
 #endif
-

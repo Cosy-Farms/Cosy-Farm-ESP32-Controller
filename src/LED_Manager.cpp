@@ -1,3 +1,6 @@
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include "LED_Manager.h"
 #include "define.h" // Include define.h for state definitions
 
@@ -11,6 +14,11 @@ bool blinkState = false;
 unsigned long lastBlinkToggle = 0;
 const unsigned long BLINK_INTERVAL = 500; // 1Hz blink
 const unsigned long FAST_BLINK_INTERVAL = 200; // 2.5Hz for errors/NTP
+static int currentLedState = 0; // Internal state for the LED task
+
+// Dedicated task to handle LED blinking independently of blocking network calls
+void ledTask(void *parameter);
+static TaskHandle_t ledTaskHandle = NULL;
 
 
 // Initializes the LED pins for PWM control.
@@ -29,6 +37,9 @@ void ledInit() {
   
   // Set initial LED color to off (0,0,0).
   ledSetColor(0,0,0);
+
+  // Start the LED task
+  xTaskCreate(ledTask, "LED_Task", 2048, NULL, 2, &ledTaskHandle);
 }
 
 // Sets the RGB color of the LED.
@@ -66,7 +77,8 @@ void ledBlink(int state, unsigned long now) {
 
   switch(state) {
     case STATE_NTP_SYNC:
-      ledSetColor(blinkState ? 0 : 255, blinkState ? 255 : 0, 0); // Green blink
+      // FIXED: Was toggling Red/Green. Now blinks Green/Off for consistency.
+      ledSetColor(0, blinkState ? 255 : 0, 0); 
       break;
     case STATE_AP:
       ledSetColor(blinkState ? 255 : 0, blinkState ? 255 : 0, 0); // Yellow blink
@@ -92,3 +104,19 @@ void ledBlink(int state, unsigned long now) {
   }
 }
 
+/**
+ * Dedicated task for LED updates to ensure consistency.
+ */
+void ledTask(void *parameter) {
+  int receivedState;
+  for (;;) {
+    // Try to receive a new state from the queue without blocking
+    if (xQueueReceive(stateQueue, &receivedState, 0) == pdTRUE) {
+      currentLedState = receivedState; // Update internal state
+      g_currentSystemState = receivedState; // Update the global authoritative state
+    }
+    
+    ledBlink(currentLedState, millis());
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
