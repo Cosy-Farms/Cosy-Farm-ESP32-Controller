@@ -25,7 +25,7 @@ void otaCheckAfterNtp()
 
   Serial.println(F("OTA: Starting version check after NTP..."));
   int newState;
-  
+
   newState = STATE_OTA_CHECK;
   xQueueSend(stateQueue, &newState, 0);
 

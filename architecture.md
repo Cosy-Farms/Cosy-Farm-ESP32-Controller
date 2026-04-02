@@ -15,20 +15,20 @@ Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller
 | 1 | RGB G | WS2812/LED | PWM ch1, 1kHz/8bit |
 | 2 | RGB R | WS2812/LED | PWM ch0 |
 | 3 | RGB B | WS2812/LED | PWM ch2 |
-| 6 | DHT22 Data | Air T/RH | 4.7kΩ pull-up, 2s samples, avg5 (10s) |
-| 7 | DS18B20 DQ | Water T (tank) | OneWire, 4.7kΩ pull-up, avg10 |
-| 4 | HC-SR04 Trig | Tank level ultrasonic | 5s samples, avg10 |
-| 5 | HC-SR04 Echo | Tank level ultrasonic | Full=10cm, Empty=150cm → 0-100% |
-| 8 | Float Switch | AC Condensate Level | Pull-up, LOW=full, 3s debounce |
-| 9 | Relay | AC Water Pump | Active HIGH, 90s cycles (~2L @1.5L/min), 10s cooldown |
-| 10 | MH-Z19 RX | CO2 Sensor UART2 | 9600 baud |
-| 11 | MH-Z19 TX | CO2 Sensor UART2 | 9600 baud |
+| 6 | DHT22 Data | Air T/RH | 4.7kΩ pull-up, 2s samples, EMA filter, SD check (threshold: 1.0C) |
+| 7 | DS18B20 DQ | Water T (tank) | OneWire, 4.7kΩ pull-up, EMA filter |
+| 4 | HC-SR04 Trig | Tank level ultrasonic | 5s samples, median burst (5), rolling avg (10), SD check (threshold: 2.5cm), Slew limit (10cm/5s) |
+| 5 | HC-SR04 Echo | Tank level ultrasonic | Full=5cm, Empty=30cm → 0-100% (with temp-compensated speed of sound) |
+| 8 | Float Switch | AC Condensate Level | Pull-up, LOW=full, 3s debounce, 10s cooldown |
+| 9 | Relay | AC Water Pump | Active HIGH, 90s cycles (~2L @1.5L/min) |
+| 10 | MH-Z19 RX | CO2 Sensor UART2 | 9600 baud, EMA filter, SD check (threshold: 20ppm), Slew limit (500ppm/5s) |
+| 11 | MH-Z19 TX | CO2 Sensor UART2 | 9600 baud, internal temp monitor (overheat >55C) |
 
 ## Software Stack
 
 ### Core Components
-- **main.cpp**: Serial/10s delay → g_deviceId=eFuse MAC→NVS → LittleFS/RTC log → hw info → ledInit/wifiInit → tasks → sensor inits. 100ms loop(commandUpdate). systemInfoTask (60s reports: uptime/sensors/CO2/WiFi RSSI/IP/heap/PSRAM/state).
-- **define.h**: Pins, globals (extern), states (0=NTP_SYNC ... 6=OTA_UPDATE), timings (AC_PUMP_RUN_TIME_MS=90s etc.), FIRMWARE_VERSION=\"1.0.0\".
+- **main.cpp**: Serial/10s delay → g_deviceId=eFuse MAC→NVS → LittleFS/RTC log → hw info → ledInit/wifiInit → tasks → sensor inits. 100ms loop(commandUpdate). systemInfoTask (60s reports: uptime/sensors/CO2/WiFi RSSI/IP/heap/PSRAM/g_currentSystemState).
+- **define.h**: Pins, globals (extern), states (0=NTP_SYNC ... 6=OTA_UPDATE), timings (AC_PUMP_RUN_TIME_MS=90s etc.), FIRMWARE_VERSION=\"1.0.0\". Defines `stateQueue` for inter-task state communication and `g_currentSystemState` as the authoritative system state.
 - **Logging**: LittleFS `/system_log.txt` (128kB trunc), RTC_DATA_ATTR 2kB buffer (persist resets/brownouts, flush overflow/10min/critical/60s reports).
 - **Storage**: NVS prefs (\"device\"/\"wifi-creds\"/\"ota\"), LittleFS mounted in setup.
 - **ID**: g_deviceId = \"COSYFARM-\" + eFuse MAC.
@@ -37,19 +37,19 @@ Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller
 
 | Manager | Purpose | Update Freq | Stack Size | Globals/Key Logic |
 |---------|---------|-------------|------------|-------------------|
-| **Thermal_Manager** | DHT22 air T/RH (avg5) | 2s | 16kB | avg_temp_c, avg_humid_pct, dhtEnabled (fail≥5→10min recovery). |
-| **Tank_Manager** | HC-SR04 median burst (5) + rolling avg10/DS18B20 avg10, health/jitter/slew/persistence | 5s | 4kB | g_waterLevelPct/g_waterDistanceCm/g_tankStdDev/g_tankHealthPct, tankSensorEnabled/ds18b20Enabled (separate fails/recovery). |
-| **CO2_Manager (NEW)** | MH-Z19E ppm avg10 / int T | 5s | 4kB | g_co2Ppm, g_co2Temp, co2Enabled (fail≥5→10min), co2WarmedUp (3min). |
-| **ACWater_Manager** | Float→pump FSM | 200ms | 2kB | g_acWaterPumpedToday (daily reset), g_acPumpRunning. States: IDLE/PUMPING/COOLDOWN/FAULT. |
-| **WiFi_Manager** | STA (NVS/\"COSYFARM\") monitor+rollback | Async/100ms | 8kB | wifiConnected; AP SSID=g_deviceId. |
-| **systemInfoTask** | Aggregate Serial/LittleFS reports | 60s | 4kB | Uptime, sensors/CO2, WiFi, mem/heap/PSRAM, state/OTA prog. |
-| **wifiMonitorTask** | Events+NTP/OTA/LED | 100ms | 8kB | Reconnect, ntpAttempt/otaCheckAfterNtp, ledBlink(state). |
+| **Thermal_Manager** | DHT22 air T/RH (EMA filtered) | 2s | 16384 | avg_temp_c, avg_humid_pct, g_thermalStdDev (jitter), dhtEnabled (fail≥5→10min recovery). |
+| **Tank_Manager** | HC-SR04 median burst (5) + rolling avg (10) / DS18B20 (EMA filtered), health/jitter/slew/persistence | 5s | 4096 | g_waterLevelPct/g_waterDistanceCm/g_tankStdDev/g_tankHealthPct, tankSensorEnabled/ds18b20Enabled (separate fails/recovery), speed of sound compensation. |
+| **CO2_Manager (NEW)** | MH-Z19E ppm (EMA filtered) / int T | 5s | 4096 | g_co2Ppm, g_co2Temp, g_co2StdDev (jitter), co2Enabled (fail≥5→10min, overheat>55C), co2WarmedUp (3min), jitter-triggered burn-in. |
+| **ACWater_Manager** | Float→pump FSM | 200ms | 2048 | g_acWaterPumpedToday (daily reset), g_acPumpRunning. States: IDLE/PUMPING/COOLDOWN/FAULT. |
+| **WiFi_Manager** | STA (NVS/\"COSYFARM\") monitor+rollback | Async/100ms | 8192 | wifiConnected; AP SSID=g_deviceId. Sends state changes to `stateQueue`. |
+| **systemInfoTask** | Aggregate Serial/LittleFS reports | 60s | 8192 | Uptime, sensors/CO2, WiFi, mem/heap/PSRAM, `g_currentSystemState`/OTA prog. |
+| **wifiMonitorTask** | Events+NTP/OTA | 100ms | 8192 | Reconnect, ntpAttempt/otaCheckAfterNtp. Sends state changes to `stateQueue`. |
 
 **Other Modules** (non-task/init-only):
  
 - **NTP_Manager**: GeoIP/tz JSON sync on connect, g_lat/lon/g_epochTime/g_localTime/g_timezone (rtcUpdate daily).
 - **Command_Manager**: Serial CLI (W/w/C/c/S/s/F/f/T/t).
-- **LED_Manager**: PWM RGB blink patterns per state (e.g. solid green=CONNECTED).
+- **LED_Manager**: Dedicated FreeRTOS task (`ledTask`) consuming state changes from `stateQueue`. PWM RGB blink patterns per `g_currentSystemState` (e.g. solid green=CONNECTED).
 - **RTC_Manager**: ESP RTC + NTP drift correction, day-change→ntp+acWaterResetDaily.
 - **OTA_Manager**: GitHub check post-NTP/24h, rollback if WiFi fail<5min.
 
@@ -64,12 +64,13 @@ Repo: https://github.com/Cosy-Farms/Cosy-Farm-ESP32-Controller
 | **T/t** | Both | Reset Sensors | thermalReset() + tankReset() |
 
 ### Key Globals (define.h extern)
-- Sensors: avg_temp_c/avg_humid_pct, water_temp_c, g_waterLevelPct/g_waterDistanceCm, g_co2Ppm/g_co2Temp, g_acWaterPumpedToday.
-- System: currentState (0=NTP_SYNC..6=OTA_UPDATE), wifiConnected/ntpRetryCount, g_deviceId=\"COSYFARM-MAC\"/g_*time, dhtEnabled/tankSensorEnabled/ds18b20Enabled/co2Enabled/g_acPumpRunning/co2WarmedUp.
+- Sensors: avg_temp_c/avg_humid_pct, g_thermalStdDev, water_temp_c, g_waterLevelPct/g_waterDistanceCm, g_tankStdDev/g_tankHealthPct, g_co2Ppm/g_co2Temp, g_co2StdDev, g_acWaterPumpedToday.
+- System: `g_currentSystemState` (0=NTP_SYNC..6=OTA_UPDATE), `stateQueue`, wifiConnected/ntpRetryCount, g_deviceId=\"COSYFARM-MAC\"/g_*time, dhtEnabled/tankSensorEnabled/ds18b20Enabled/co2Enabled/g_acPumpRunning/co2WarmedUp.
 
 ## Data Flow
-1. setup(): Serial(115200)/10s delay, g_deviceId=eFuse MAC→NVS, LittleFS/RTC log buffer, hw info print, ledInit/wifiInit → tasks(wifiMonitor/systemInfo/co2/acWater/tank/thermal) → sensor inits.
-2. Tasks update globals (sensors/logic).
+1. setup(): Serial(115200)/10s delay, g_deviceId=eFuse MAC→NVS, LittleFS/RTC log buffer, hw info print, ledInit/wifiInit → creates `stateQueue` → tasks(wifiMonitor/systemInfo/co2/acWater/tank/thermal) → sensor inits.
+2. Sensor tasks update their respective globals. Manager tasks (WiFi, OTA) send state changes to `stateQueue`.
+3. `ledTask` consumes from `stateQueue`, updates `g_currentSystemState`, and controls the RGB LED.
 3. systemInfoTask aggregates → Serial + logStatusToFile (RTC-buffered).
 4. RTC day-change → NTP resync + daily resets (acWater).
 5. Loop: commandUpdate() → CLI actions (e.g., sensor reset).
@@ -87,9 +88,9 @@ lib_deps =
     adafruit/DHT sensor library @ ^1.4.6
     paulstoffregen/OneWire @ ^2.3.7
     milesburton/DallasTemperature @ ^3.9.0
-    https://github.com/WifWaf/MH-Z19.git
+    https://github.com/WifWaf/MH-Z19.git # MH-Z19E library
 build_flags = 
-    -DCORE_DEBUG_LEVEL=3
+    -DCORE_DEBUG_LEVEL=1
     -DARDUINO_USB_CDC_ON_BOOT=1
     -DCONFIG_ESP_TASK_WDT_INIT=1
     -DCONFIG_ESP_TASK_WDT_TIMEOUT_S=5
@@ -106,4 +107,3 @@ build_flags =
 - **OTA Rollback**: If new FW WiFi fail >5min.
 
 Firmware fully matches this architecture (incl. CO2). Flash & monitor with `pio run -t upload -t monitor`.
-

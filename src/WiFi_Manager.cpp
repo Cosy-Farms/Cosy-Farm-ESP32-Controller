@@ -16,12 +16,12 @@ String g_password;
 bool isPendingVerify = false;
 unsigned long rollbackTimer = 0;
 // Allow 5 minutes for the new firmware to successfully connect and sync.
-#define ROLLBACK_TIMEOUT_MS 300000 
+#define ROLLBACK_TIMEOUT_MS 300000
 
 // Flag to trigger NTP and OTA check outside of the WiFi event task context
 static bool g_syncTriggered = false;
 
-// Forward declaration or move the function definition up to ensure 
+// Forward declaration or move the function definition up to ensure
 // it is in scope for the event handlers.
 bool ntpAttempt()
 {
@@ -43,7 +43,8 @@ bool ntpAttempt()
 // Event handler for WiFi station connected to AP.
 // This event signifies that the ESP32 has successfully connected to a WiFi access point,
 // but it might not have received an IP address yet.
-void WiFiEventConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
+void WiFiEventConnected(WiFiEvent_t event, WiFiEventInfo_t info)
+{
   Serial.printf("WiFi connected to AP: %s\n", WiFi.SSID().c_str());
   // The currentState is not immediately set to STATE_CONNECTED here because
   // we need to wait for an IP address (handled by WiFiEventGotIP) and
@@ -52,16 +53,18 @@ void WiFiEventConnected(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 // Event handler for WiFi station obtaining an IP address.
 // This event signifies that the ESP32 has a valid IP address and is fully connected to the network.
-void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
+void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
+{
   wifiConnected = true;
   Serial.printf("WiFi Connected! IP=%s, Signal=%d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
   ntpRetryCount = 0; // Reset NTP retry counter on successful connection.
-  
+
   // If this boot was a trial for new firmware, mark it as successful.
-  if (isPendingVerify) {
+  if (isPendingVerify)
+  {
     isPendingVerify = false;
     // Use a temporary Preferences object to avoid conflicts if prefs is used elsewhere
-    Preferences tempPrefs; 
+    Preferences tempPrefs;
     tempPrefs.begin("ota", false);
     prefs.putBool("pending-verify", false);
     prefs.end();
@@ -74,13 +77,14 @@ void WiFiEventGotIP(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 // Event handler for WiFi station disconnected from AP.
 // This event is triggered when the ESP32 loses its connection to the WiFi access point.
-void WiFiEventDisconnected(WiFiEvent_t event, WiFiEventInfo_t info) {
+void WiFiEventDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
+{
   wifiConnected = false;
   int newState = STATE_ERROR;
   xQueueSend(stateQueue, &newState, 0); // Set state to error on disconnection.
   // In ESP32 Core 3.0+, 'disconnected' was renamed to 'wifi_sta_disconnected'
   Serial.printf("WiFi disconnected from AP, reason: %d. Retrying...\n", info.wifi_sta_disconnected.reason);
-  
+
   // Attempt to reconnect using the stored global credentials.
   WiFi.begin(g_ssid.c_str(), g_password.c_str());
   newState = STATE_CONNECTING;
@@ -105,10 +109,12 @@ void wifiInit()
     prefs.putString("ssid", g_ssid);
     prefs.putString("pass", g_password);
   }
-  else {
+  else
+  {
     Serial.printf("Using saved WiFi creds from NVS: %s\n", g_ssid.c_str());
     // Diagnostic: Warn if saved SSID differs from the current hardcoded default
-    if (g_ssid != DEFAULT_SSID) {
+    if (g_ssid != DEFAULT_SSID)
+    {
       Serial.printf("INFO: Saved SSID differs from DEFAULT_SSID ('%s').\n", DEFAULT_SSID);
       Serial.println(F("      To use the new default, send 'W' over Serial to wipe NVS."));
     }
@@ -120,8 +126,9 @@ void wifiInit()
   isPendingVerify = prefs.getBool("pending-verify", false);
   prefs.end();
 
-  if (isPendingVerify) rollbackTimer = millis();
-  
+  if (isPendingVerify)
+    rollbackTimer = millis();
+
   // Register WiFi event handlers to enable event-driven connection management.
   WiFi.onEvent(WiFiEventConnected, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   WiFi.onEvent(WiFiEventGotIP, ARDUINO_EVENT_WIFI_STA_GOT_IP);
@@ -142,41 +149,47 @@ void wifiMonitorTask(void *parameter)
 
   for (;;)
   {
-  // Safe mode removed - normal operation
+    // Safe mode removed - normal operation
 
-    
     // LED update removed from here (handled by dedicated LED_Task)
-    
+
     // Perform NTP and OTA check when triggered (and WiFi is still connected)
-    if (g_syncTriggered && wifiConnected) {
+    if (g_syncTriggered && wifiConnected)
+    {
       g_syncTriggered = false;
       Serial.println(F("WiFi Monitor: Starting post-connection sync (NTP/OTA)..."));
-      
-      if (!ntpAttempt()) {
+
+      if (!ntpAttempt())
+      {
         ntpRetryCount++;
-        if (ntpRetryCount >= 3) {
+        if (ntpRetryCount >= 3)
+        {
           Serial.println(F("NTP failed after 3 tries, setting state to CONNECTED"));
           int newState = STATE_CONNECTED;
           xQueueSend(stateQueue, &newState, 0);
         }
       }
-      
+
       otaCheckAfterNtp();
     }
 
     // Rollback Logic: If WiFi fails to connect within the timeout after an update.
-    if (isPendingVerify && (millis() - rollbackTimer > ROLLBACK_TIMEOUT_MS)) {
+    if (isPendingVerify && (millis() - rollbackTimer > ROLLBACK_TIMEOUT_MS))
+    {
       Serial.println(F("Rollback Protection: Connection timeout! Reverting to previous firmware..."));
-      
+
       prefs.begin("ota", false);
       prefs.putBool("pending-verify", false);
       // Revert the NVS version string so it reflects the version we are rolling back to.
-      prefs.putString("ota-version", FIRMWARE_VERSION); 
+      prefs.putString("ota-version", FIRMWARE_VERSION);
       prefs.end();
 
-      if (Update.rollBack()) {
+      if (Update.rollBack())
+      {
         ESP.restart();
-      } else {
+      }
+      else
+      {
         Serial.println(F("Rollback Protection: ERROR - Rollback failed (no previous image?)"));
         isPendingVerify = false; // Stop trying to rollback if it's impossible.
       }
